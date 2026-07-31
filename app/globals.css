@@ -1472,15 +1472,20 @@ footer {
   padding: 0;
 }
 
-.sentence-highlight.similar .diff-fragment {
+.sentence-highlight.similar .common-fragment {
   margin: 0 -1px;
   padding: 2px 3px;
   border-radius: 4px;
-  background: #ffd98a;
-  box-shadow: inset 0 -1px 0 rgba(183, 100, 12, 0.32);
+  background: #ffe0dc;
+  box-shadow: inset 0 -1px 0 rgba(198, 66, 66, 0.24);
   color: inherit;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+
+.sentence-highlight.similar .diff-fragment {
+  color: #bd3f3f;
+  font-weight: 800;
 }
 
 .highlight-legend {
@@ -1512,8 +1517,19 @@ footer {
 }
 
 .highlight-legend i.similar {
-  background: #ffd98a;
-  box-shadow: inset 0 0 0 1px rgba(183, 100, 12, 0.26);
+  position: relative;
+  background: white;
+  box-shadow: inset 0 0 0 1px #efb7b2;
+}
+
+.highlight-legend i.similar::after {
+  position: absolute;
+  inset: -1px 0 0;
+  color: #bd3f3f;
+  content: "가";
+  font-size: 9px;
+  font-style: normal;
+  text-align: center;
 }
 
 .highlight-legend small {

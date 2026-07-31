@@ -749,11 +749,15 @@ function HighlightedComparisonText({
             <span
               className="sentence-highlight similar"
               key={`${index}-${sentence.text}`}
-              title={`${label} ${formatPercent(sentence.score)} · 다른 부분만 강조`}
+              title={`${label} ${formatPercent(sentence.score)} · 같은 부분은 음영, 다른 부분은 붉은 글자`}
             >
               {diffSegments(sentence.text, sentence.matchedText).map((segment, segmentIndex) =>
                 segment.changed ? (
-                  <mark className="diff-fragment" key={`${segmentIndex}-${segment.text}`}>
+                  <span className="diff-fragment" key={`${segmentIndex}-${segment.text}`}>
+                    {segment.text}
+                  </span>
+                ) : /[\p{L}\p{N}]/u.test(segment.text) ? (
+                  <mark className="common-fragment" key={`${segmentIndex}-${segment.text}`}>
                     {segment.text}
                   </mark>
                 ) : (
@@ -795,13 +799,17 @@ function highlightedReportHtml(text: string, comparisonText: string) {
       const label = sentence.level === "exact" ? "완전 일치" : "높은 유사도";
       if (sentence.level === "similar") {
         const diffContent = diffSegments(sentence.text, sentence.matchedText)
-          .map((segment) =>
-            segment.changed
-              ? `<mark class="diff-fragment">${escapeHtml(segment.text)}</mark>`
-              : escapeHtml(segment.text),
-          )
+          .map((segment) => {
+            if (segment.changed) {
+              return `<span class="diff-fragment">${escapeHtml(segment.text)}</span>`;
+            }
+            if (/[\p{L}\p{N}]/u.test(segment.text)) {
+              return `<mark class="common-fragment">${escapeHtml(segment.text)}</mark>`;
+            }
+            return escapeHtml(segment.text);
+          })
           .join("");
-        return `<span class="similar" title="${label} ${formatPercent(sentence.score)} · 다른 부분만 강조">${diffContent}</span>`;
+        return `<span class="similar" title="${label} ${formatPercent(sentence.score)} · 같은 부분은 음영, 다른 부분은 붉은 글자">${diffContent}</span>`;
       }
       return `<mark class="${sentence.level}" title="${label} ${formatPercent(sentence.score)}">${content}</mark>`;
     })
@@ -1100,62 +1108,93 @@ export default function Home() {
         timeStyle: "short",
       }).format(new Date());
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    const orderedRecords = [...records].sort(
-      (left, right) =>
-        right.similarity - left.similarity || left.name.localeCompare(right.name, "ko"),
-    );
+    const orderedRecords = [...filteredRecords];
+    const currentRiskLabel = riskFilter === "all" ? "전체 위험도" : riskLabel(riskFilter);
+    const currentSortLabel =
+      sortMode === "name" ? "이름 순" : sortMode === "subject" ? "과목 순" : "유사도 높은 순";
+    const checkedCount = counts.exact + counts.high + counts.review;
     const reportRows = orderedRecords
       .map((record, index) => {
         const status = riskStatus(record, threshold);
-        const keywords = sharedKeywords(record);
         return `
-          <article class="record-card">
-            <div class="record-heading">
-              <div>
-                <span class="status ${status}">${escapeHtml(riskLabel(status))}</span>
-                <h3>${index + 1}. ${escapeHtml(record.name)} · ${escapeHtml(record.subject)}</h3>
-                <p>${escapeHtml(record.className)} · ${escapeHtml(record.grade)}</p>
-              </div>
-              <div class="score">
-                <span>최대 유사도</span>
-                <strong>${formatPercent(record.similarity)}</strong>
-              </div>
-            </div>
-            <div class="comparison">
-              <section>
-                <h4>A · ${escapeHtml(record.name)}</h4>
-                <p>${highlightedReportHtml(record.text, record.matchText)}</p>
-              </section>
-              <section>
-                <h4>B · ${escapeHtml(record.matchName || "비교 대상 없음")}</h4>
-                <p>${
-                  record.matchText
-                    ? highlightedReportHtml(record.matchText, record.text)
-                    : '<span class="empty">비교할 다른 기록이 없습니다.</span>'
-                }</p>
-              </section>
-            </div>
-            ${
-              keywords.length
-                ? `<div class="keywords"><span>공통 단어</span>${keywords
-                    .map((keyword) => `<i>${escapeHtml(keyword)}</i>`)
-                    .join("")}</div>`
+          <tr>
+            <td><span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span></td>
+            <td><strong class="student-name">${escapeHtml(record.name)}</strong><span class="muted">${escapeHtml(record.className)}</span></td>
+            <td><span class="subject-chip">${escapeHtml(record.subject)}</span></td>
+            <td><strong class="similarity-number ${status}">${formatPercent(record.similarity)}</strong>${
+              record.matchName
+                ? `<span class="muted">↔ ${escapeHtml(record.matchName)}</span>`
                 : ""
-            }
-            <footer>원본: ${escapeHtml(record.sourceFile)} · ${record.sourceRow}행</footer>
-          </article>`;
+            }</td>
+            <td><p class="record-preview">${escapeHtml(record.text)}</p></td>
+            <td>${
+              record.matchText
+                ? `<a class="compare-button" href="#comparison-${index + 1}">비교 <b>›</b></a>`
+                : '<span class="compare-button disabled">비교</span>'
+            }</td>
+          </tr>`;
       })
       .join("");
-    const subjectRows = subjectSummaries
+    const comparisonDialogs = orderedRecords
+      .map((record, index) => {
+        if (!record.matchText) return "";
+        const status = riskStatus(record, threshold);
+        const keywords = sharedKeywords(record);
+        return `
+          <section class="compare-dialog" id="comparison-${index + 1}" aria-label="유사 문장 비교">
+            <a class="dialog-backdrop" href="#results" aria-label="비교 창 닫기"></a>
+            <article class="dialog-sheet">
+              <header class="dialog-header">
+                <div>
+                  <span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span>
+                  <h2>유사 문장 나란히 보기</h2>
+                </div>
+                <a class="dialog-close" href="#results" aria-label="비교 창 닫기">×</a>
+              </header>
+              <div class="similarity-callout">
+                <div><span>자카드 유사도</span><strong>${formatPercent(record.similarity)}</strong></div>
+                <p>공통 단어 ${keywords.length}개를 기준으로 가장 가까운 기록을 찾았습니다.</p>
+              </div>
+              <div class="highlight-guide">
+                <span><i class="exact"></i>완전 일치 문장·공통 부분</span>
+                <span><i class="similar"></i>문장 내 다른 부분</span>
+              </div>
+              <div class="comparison-grid">
+                <section>
+                  <h3>A · ${escapeHtml(record.name)}</h3>
+                  <small>${escapeHtml(record.className)} · ${escapeHtml(record.subject)}</small>
+                  <p>${highlightedReportHtml(record.text, record.matchText)}</p>
+                </section>
+                <section>
+                  <h3>B · ${escapeHtml(record.matchName || "비교 대상")}</h3>
+                  <small>가장 유사한 다른 기록</small>
+                  <p>${highlightedReportHtml(record.matchText, record.text)}</p>
+                </section>
+              </div>
+              ${
+                keywords.length
+                  ? `<div class="keywords"><span>두 문장에 함께 나온 주요 단어</span>${keywords
+                      .map((keyword) => `<i>${escapeHtml(keyword)}</i>`)
+                      .join("")}</div>`
+                  : ""
+              }
+              <footer>원본: ${escapeHtml(record.sourceFile)} · ${record.sourceRow}행</footer>
+            </article>
+          </section>`;
+      })
+      .join("");
+    const subjectItems = subjectSummaries
+      .slice(0, 5)
       .map(
         (summary) => `
-          <tr>
-            <td>${escapeHtml(summary.subject)}</td>
-            <td>${summary.total.toLocaleString("ko-KR")}</td>
-            <td>${summary.exact.toLocaleString("ko-KR")}</td>
-            <td>${summary.high.toLocaleString("ko-KR")}</td>
-            <td>${summary.review.toLocaleString("ko-KR")}</td>
-          </tr>`,
+          <div class="subject-row">
+            <span>${escapeHtml(summary.subject)}</span>
+            <i><b style="width:${Math.max(
+              4,
+              ((summary.exact + summary.high) / Math.max(1, summary.total)) * 100,
+            )}%"></b></i>
+            <strong>${(summary.exact + summary.high).toLocaleString("ko-KR")}건</strong>
+          </div>`,
       )
       .join("");
     const html = `<!doctype html>
@@ -1165,86 +1204,194 @@ export default function Home() {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>과세특 점검 결과 · ${escapeHtml(generatedAt)}</title>
   <style>
-    :root { color-scheme: light; --navy:#102d50; --teal:#0f766e; --line:#dce4ea; --muted:#65758a; }
+    :root { color-scheme:light; --navy:#15365d; --navy-deep:#102d50; --teal:#12998b; --teal-dark:#0f766e; --ink:#172b45; --ink-soft:#607086; --line:#dce4ea; --danger:#d85050; --danger-soft:#fff0ee; --warning:#d1841d; --warning-soft:#fff6e7; --review:#7a60b3; --review-soft:#f4efff; --mint:#e6f7f2; }
     * { box-sizing:border-box; }
-    body { margin:0; background:#f5f8f7; color:#172b45; font-family:"Noto Sans KR","Malgun Gothic",sans-serif; line-height:1.65; }
-    .page { width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:42px 0 70px; }
-    .report-header { padding:34px; border-radius:24px; background:var(--navy); color:white; }
-    .report-header small { color:#7ce0d2; font-weight:700; }
-    .report-header h1 { margin:8px 0 10px; font-size:32px; }
-    .report-header p { margin:0; color:#c5d3e2; font-size:13px; }
-    .privacy { margin-top:18px; padding:12px 15px; border-radius:11px; background:rgba(255,255,255,.08); color:#d8e4ee; font-size:11px; }
-    .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:18px 0; }
-    .summary article { padding:19px; border:1px solid var(--line); border-radius:16px; background:white; }
-    .summary span { color:var(--muted); font-size:11px; }
-    .summary strong { display:block; margin-top:5px; font-size:27px; }
-    .panel { margin:18px 0; padding:24px; border:1px solid var(--line); border-radius:18px; background:white; }
-    .panel h2 { margin:0 0 16px; font-size:19px; }
-    table { width:100%; border-collapse:collapse; font-size:11px; }
-    th,td { padding:10px 12px; border-bottom:1px solid #e9eef1; text-align:left; }
-    th { background:#f5f8f7; color:var(--muted); }
-    .records-title { margin:32px 0 14px; font-size:22px; }
-    .record-card { margin-bottom:16px; overflow:hidden; border:1px solid var(--line); border-radius:18px; background:white; break-inside:avoid; }
-    .record-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding:20px 22px; border-bottom:1px solid var(--line); }
-    .record-heading h3 { margin:9px 0 2px; font-size:16px; }
-    .record-heading p { margin:0; color:var(--muted); font-size:10px; }
-    .status { display:inline-block; padding:4px 8px; border-radius:7px; font-size:9px; font-weight:800; }
-    .status.exact { background:#fff0ee; color:#b33d3d; }
-    .status.high { background:#fff6e7; color:#a86416; }
-    .status.review { background:#f4efff; color:#6f55ab; }
-    .status.normal { background:#e6f7f2; color:#0f766e; }
-    .score { flex:0 0 auto; text-align:right; }
-    .score span { display:block; color:var(--muted); font-size:9px; }
-    .score strong { color:var(--teal); font-size:23px; }
-    .comparison { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:18px 22px; }
-    .comparison section { padding:16px; border:1px solid #e1e7eb; border-radius:13px; background:#fbfcfb; }
-    .comparison h4 { margin:0 0 12px; padding-bottom:9px; border-bottom:1px solid #e1e7eb; font-size:11px; }
-    .comparison p { min-height:90px; margin:0; color:#40556d; font-size:11px; white-space:pre-wrap; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:#f5f8f7; color:var(--ink); font-family:"Noto Sans KR","Malgun Gothic",sans-serif; line-height:1.65; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; min-height:62px; padding:0 max(24px,calc((100% - 1180px)/2)); border-bottom:1px solid rgba(220,228,234,.85); background:rgba(255,255,255,.92); }
+    .brand { display:grid; grid-template-columns:34px auto; column-gap:9px; align-items:center; }
+    .brand-mark { display:grid; grid-row:1/3; width:34px; height:34px; place-items:center; border-radius:10px; background:var(--navy); color:white; font-weight:900; }
+    .brand strong { align-self:end; font-size:12px; }
+    .brand small { align-self:start; color:#8a98a8; font-size:8px; }
+    .topbar > span { color:#6f7e90; font-size:10px; }
+    .report-main { width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:36px 0 80px; }
+    .report-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:30px; padding:28px 0 32px; }
+    .eyebrow { color:var(--teal-dark); font-size:10px; font-weight:800; }
+    .report-hero h1 { margin:12px 0 10px; font-size:clamp(34px,4vw,50px); letter-spacing:-.055em; line-height:1.12; }
+    .report-hero p { max-width:760px; margin:0; color:var(--ink-soft); font-size:14px; }
+    .saved-chip { flex:0 0 auto; padding:13px 17px; border:1px solid #cbd8df; border-radius:13px; background:white; color:var(--navy); font-size:11px; font-weight:800; }
+    .summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+    .summary-card { display:grid; grid-template-columns:44px 1fr; grid-template-rows:auto auto auto; column-gap:14px; padding:21px; border:1px solid var(--line); border-radius:17px; background:white; box-shadow:0 8px 30px rgba(21,54,93,.045); }
+    .summary-icon { display:grid; grid-row:1/4; width:44px; height:44px; place-items:center; border-radius:13px; font-size:13px; font-weight:900; }
+    .summary-card > span { color:#758397; font-size:11px; font-weight:700; }
+    .summary-card > strong { margin-top:5px; font-size:28px; letter-spacing:-.04em; }
+    .summary-card > small { margin-top:3px; color:#9aa6b4; font-size:9px; }
+    .summary-card.primary .summary-icon { background:#eaf3ff; color:var(--navy); }
+    .summary-card.danger .summary-icon { background:var(--danger-soft); color:var(--danger); }
+    .summary-card.warning .summary-icon { background:var(--warning-soft); color:var(--warning); }
+    .summary-card.calm .summary-icon { background:var(--mint); color:var(--teal-dark); }
+    .insight-grid { display:grid; grid-template-columns:1.2fr .8fr; gap:16px; margin-top:16px; }
+    .panel,.results-panel { border:1px solid var(--line); border-radius:19px; background:white; box-shadow:0 8px 30px rgba(21,54,93,.045); }
+    .panel { padding:25px; }
+    .card-title-row { display:flex; align-items:center; justify-content:space-between; }
+    .section-kicker { color:var(--teal-dark); font-size:9px; }
+    .card-title-row h2,.results-heading h2 { margin:5px 0 0; font-size:18px; letter-spacing:-.04em; }
+    .issue-total { padding:7px 10px; border-radius:9px; background:#f3f6f8; color:#607086; font-size:10px; font-weight:800; }
+    .distribution-bar { display:flex; height:10px; margin:26px 0 18px; overflow:hidden; border-radius:99px; background:#edf1f3; }
+    .distribution-bar span { display:block; }
+    .exact-fill,.legend-dot.exact { background:var(--danger); }
+    .high-fill,.legend-dot.high { background:#e79a35; }
+    .review-fill,.legend-dot.review { background:var(--review); }
+    .normal-fill,.legend-dot.normal { background:#75b9ae; }
+    .distribution-legend { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .legend-item { display:grid; grid-template-columns:8px 1fr auto; align-items:center; gap:7px; padding:9px 8px; border-radius:10px; background:#fafbf9; }
+    .legend-dot { width:7px; height:7px; border-radius:50%; }
+    .legend-item span { color:#65758a; font-size:9px; }
+    .legend-item strong { font-size:11px; }
+    .threshold { margin-top:22px; padding-top:16px; border-top:1px solid #edf1f3; }
+    .threshold-label { display:flex; justify-content:space-between; color:#65758a; font-size:10px; }
+    .threshold-label strong { color:var(--teal-dark); font-size:12px; }
+    .threshold-track { position:relative; height:5px; margin-top:13px; border-radius:99px; background:#e5eaed; }
+    .threshold-track span { display:block; height:100%; border-radius:inherit; background:var(--teal); }
+    .threshold-track i { position:absolute; top:50%; width:15px; height:15px; border-radius:50%; background:var(--teal); transform:translate(-50%,-50%); }
+    .subject-list { display:flex; flex-direction:column; gap:5px; margin-top:18px; }
+    .subject-row { display:grid; grid-template-columns:92px 1fr 42px; align-items:center; gap:10px; padding:8px; }
+    .subject-row > span { overflow:hidden; font-size:10px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .subject-row > i { height:5px; overflow:hidden; border-radius:99px; background:#edf1f3; }
+    .subject-row > i b { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#e19632,#d9604c); }
+    .subject-row > strong { color:#66768b; font-size:10px; text-align:right; }
+    .results-panel { margin-top:16px; overflow:hidden; }
+    .results-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:23px 25px; border-bottom:1px solid var(--line); }
+    .results-heading h2 em { margin-left:5px; color:var(--teal-dark); font-size:13px; font-style:normal; }
+    .snapshot-controls { display:flex; align-items:center; gap:8px; }
+    .snapshot-search,.snapshot-select { height:38px; padding:0 12px; border:1px solid var(--line); border-radius:10px; background:#fbfcfc; color:#718095; font-size:10px; line-height:36px; }
+    .snapshot-search { width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; min-width:1000px; border-collapse:collapse; table-layout:fixed; }
+    th { padding:12px 14px; border-bottom:1px solid var(--line); background:#f7f9f8; color:#728095; font-size:9px; font-weight:800; text-align:left; }
+    th:nth-child(1){width:120px} th:nth-child(2){width:120px} th:nth-child(3){width:100px} th:nth-child(4){width:115px} th:nth-child(6){width:75px}
+    td { padding:15px 14px; border-bottom:1px solid #edf1f3; vertical-align:middle; }
+    tbody tr:hover { background:#fbfdfc; }
+    .status-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; font-size:9px; font-weight:800; white-space:nowrap; }
+    .status-badge i { width:6px; height:6px; border-radius:50%; }
+    .status-badge.exact { background:var(--danger-soft); color:#b33d3d; } .status-badge.exact i { background:var(--danger); }
+    .status-badge.high { background:var(--warning-soft); color:#a86416; } .status-badge.high i { background:var(--warning); }
+    .status-badge.review { background:var(--review-soft); color:#6f55ab; } .status-badge.review i { background:var(--review); }
+    .status-badge.normal { background:var(--mint); color:var(--teal-dark); } .status-badge.normal i { background:var(--teal); }
+    .student-name,.similarity-number { display:block; font-size:11px; }
+    .similarity-number { font-size:14px; } .similarity-number.exact { color:var(--danger); } .similarity-number.high { color:var(--warning); } .similarity-number.review { color:var(--review); } .similarity-number.normal { color:var(--teal-dark); }
+    .muted { display:block; margin-top:4px; overflow:hidden; color:#8b98a7; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+    .subject-chip { display:inline-block; max-width:100%; overflow:hidden; padding:5px 8px; border-radius:7px; background:#eef4fa; color:#415b77; font-size:9px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#40556d; font-size:10px; line-height:1.75; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+    .compare-button { display:inline-flex; align-items:center; gap:3px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--navy); font-size:9px; font-weight:800; text-decoration:none; }
+    .compare-button b { font-size:14px; } .compare-button.disabled { color:#a8b1bc; }
+    .table-footer { padding:14px 24px; color:#7d8a99; font-size:10px; text-align:right; }
+    .report-notice { margin-top:16px; padding:15px 18px; border:1px solid #dbe7e3; border-radius:13px; background:#f3faf7; color:#557068; font-size:10px; }
+    .site-footer { display:flex; justify-content:space-between; padding:22px max(24px,calc((100% - 1180px)/2)); border-top:1px solid var(--line); background:white; color:#8794a3; font-size:9px; }
+    .compare-dialog { display:none; position:fixed; z-index:20; inset:0; place-items:center; padding:24px; }
+    .compare-dialog:target { display:grid; }
+    .dialog-backdrop { position:absolute; inset:0; background:rgba(8,28,50,.58); }
+    .dialog-sheet { position:relative; z-index:1; width:min(900px,100%); max-height:calc(100vh - 48px); overflow:auto; border-radius:20px; background:white; box-shadow:0 28px 80px rgba(7,27,49,.28); }
+    .dialog-header { display:flex; align-items:flex-start; justify-content:space-between; padding:22px 25px; border-bottom:1px solid var(--line); }
+    .dialog-header h2 { margin:10px 0 0; font-size:20px; }
+    .dialog-close { display:grid; width:34px; height:34px; place-items:center; border-radius:10px; background:#f3f6f8; color:var(--navy); font-size:24px; text-decoration:none; }
+    .similarity-callout { display:flex; align-items:center; justify-content:space-between; gap:20px; margin:18px 25px 0; padding:18px 20px; border-radius:14px; background:var(--navy-deep); color:white; }
+    .similarity-callout span { color:#adc0d4; font-size:9px; } .similarity-callout strong { display:block; color:#62d4c5; font-size:28px; }
+    .similarity-callout p { margin:0; color:#c8d5e3; font-size:10px; }
+    .highlight-guide { display:flex; gap:18px; padding:15px 25px 0; color:#66768b; font-size:9px; font-weight:700; }
+    .highlight-guide span { display:flex; align-items:center; gap:6px; } .highlight-guide i { width:13px; height:13px; border-radius:4px; }
+    .highlight-guide i.exact { background:#ffe0dc; } .highlight-guide i.similar { position:relative; background:white; box-shadow:inset 0 0 0 1px #efb7b2; }
+    .highlight-guide i.similar::after { position:absolute; inset:-2px 0 0; color:#bd3f3f; content:"가"; font-size:9px; font-style:normal; text-align:center; }
+    .comparison-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:18px 25px; }
+    .comparison-grid > section { padding:18px; border:1px solid var(--line); border-radius:14px; background:#fbfcfc; }
+    .comparison-grid h3 { margin:0; font-size:12px; } .comparison-grid small { color:#8795a5; font-size:9px; }
+    .comparison-grid p { min-height:120px; margin:14px 0 0; color:#40556d; font-size:11px; line-height:1.85; white-space:pre-wrap; }
     mark { margin:0 -1px; padding:2px 3px; border-radius:4px; color:inherit; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     mark.exact { background:#ffe0dc; box-shadow:inset 0 -1px 0 rgba(198,66,66,.24); }
-    .similar .diff-fragment { background:#ffd98a; box-shadow:inset 0 -1px 0 rgba(183,100,12,.32); }
-    .empty { color:#9aa6b4; }
-    .keywords { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:0 22px 18px; }
-    .keywords span { margin-right:4px; color:var(--muted); font-size:9px; font-weight:700; }
+    .similar .common-fragment { background:#ffe0dc; box-shadow:inset 0 -1px 0 rgba(198,66,66,.24); }
+    .similar .diff-fragment { color:#bd3f3f; font-weight:800; }
+    .keywords { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:0 25px 18px; }
+    .keywords span { margin-right:4px; color:#65758a; font-size:9px; font-weight:700; }
     .keywords i { padding:4px 7px; border-radius:7px; background:#e6f7f2; color:var(--teal); font-size:8px; font-style:normal; font-weight:700; }
-    .record-card footer { padding:11px 22px; border-top:1px solid var(--line); background:#f8faf9; color:#8b98a7; font-size:9px; }
-    .report-footer { margin-top:24px; color:#7e8c9c; font-size:10px; text-align:center; }
-    @media (max-width:760px) { .summary,.comparison { grid-template-columns:1fr; } .report-header { padding:26px; } }
-    @media print { body { background:white; } .page { width:100%; padding:0; } .report-header { border-radius:0; } .record-card { box-shadow:none; } }
+    .dialog-sheet > footer { padding:12px 25px; border-top:1px solid var(--line); background:#f8faf9; color:#8b98a7; font-size:9px; }
+    @media (max-width:900px) { .summary-grid{grid-template-columns:repeat(2,1fr)} .insight-grid,.comparison-grid{grid-template-columns:1fr} .report-hero,.results-heading{align-items:flex-start;flex-direction:column} .snapshot-controls{width:100%;flex-wrap:wrap} .snapshot-search{flex:1} }
+    @media (max-width:560px) { .report-main{width:min(100% - 24px,1180px)} .summary-grid{grid-template-columns:1fr} .distribution-legend{grid-template-columns:repeat(2,1fr)} .topbar>span{display:none} .site-footer{gap:12px;flex-direction:column} }
+    @media print { body{background:white} .topbar,.saved-chip,.compare-dialog{display:none!important} .report-main{width:100%;padding:0} .panel,.results-panel,.summary-card{box-shadow:none} .table-wrap{overflow:visible} table{min-width:0} .compare-button{display:none} }
   </style>
 </head>
 <body>
-  <main class="page">
-    <header class="report-header">
-      <small>교과 세부능력 및 특기사항</small>
-      <h1>과세특 점검 결과</h1>
-      <p>${escapeHtml(generatedAt)} · ${sourceFiles.length}개 파일 · ${records.length.toLocaleString("ko-KR")}건</p>
-      <div class="privacy">이 보고서에는 학생 기록이 포함될 수 있습니다. 안전한 장소에 보관하고 공유 전 개인정보를 확인하세요.</div>
-    </header>
-    <section class="summary" aria-label="점검 요약">
-      <article><span>전체 기록</span><strong>${records.length.toLocaleString("ko-KR")}</strong></article>
-      <article><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong></article>
-      <article><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong></article>
-      <article><span>확인 권장</span><strong>${counts.review.toLocaleString("ko-KR")}</strong></article>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">✓</span><strong>과세특 점검</strong><small>감사 점검 도우미</small></div>
+    <span>저장된 결과 파일 · 학생 기록을 안전하게 보관해 주세요</span>
+  </header>
+  <main class="report-main">
+    <section class="report-hero">
+      <div>
+        <div class="eyebrow">점검 완료 · ${escapeHtml(generatedAt)}</div>
+        <h1>확인이 필요한 기록을 모았습니다.</h1>
+        <p>${sourceFiles.length.toLocaleString("ko-KR")}개 파일에서 ${records.length.toLocaleString("ko-KR")}건을 정리했습니다. 유사도는 보조 지표이므로 원문을 함께 확인해 주세요.</p>
+      </div>
+      <div class="saved-chip">결과 화면 HTML 저장본</div>
     </section>
-    <section class="panel">
-      <h2>과목별 현황</h2>
-      <table>
-        <thead><tr><th>과목</th><th>전체</th><th>완전 일치</th><th>높은 유사도</th><th>확인 권장</th></tr></thead>
-        <tbody>${subjectRows}</tbody>
-      </table>
+    <section class="summary-grid" aria-label="점검 요약">
+      <article class="summary-card primary"><div class="summary-icon">전체</div><span>전체 기록</span><strong>${records.length.toLocaleString("ko-KR")}</strong><small>${sourceFiles.length.toLocaleString("ko-KR")}개 원본 파일</small></article>
+      <article class="summary-card danger"><div class="summary-icon">!</div><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong><small>정규화 후 100% 같은 문장</small></article>
+      <article class="summary-card warning"><div class="summary-icon">≈</div><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong><small>${Math.round(threshold * 100)}% 이상 유사한 문장</small></article>
+      <article class="summary-card calm"><div class="summary-icon">✓</div><span>특이 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong><small>설정 기준 미만</small></article>
     </section>
-    <h2 class="records-title">기록별 비교</h2>
-    ${reportRows}
-    <p class="report-footer">과세특 점검 도우미 · 유사도는 보조 지표이며 최종 판단은 원문을 직접 확인해 주세요.</p>
+    <section class="insight-grid">
+      <article class="panel">
+        <div class="card-title-row"><div><span class="section-kicker">점검 분포</span><h2>위험도별 기록</h2></div><div class="issue-total">${checkedCount.toLocaleString("ko-KR")}건 확인</div></div>
+        <div class="distribution-bar" aria-label="위험도 분포">
+          <span class="exact-fill" style="width:${(counts.exact / Math.max(1, records.length)) * 100}%"></span>
+          <span class="high-fill" style="width:${(counts.high / Math.max(1, records.length)) * 100}%"></span>
+          <span class="review-fill" style="width:${(counts.review / Math.max(1, records.length)) * 100}%"></span>
+          <span class="normal-fill" style="width:${(counts.normal / Math.max(1, records.length)) * 100}%"></span>
+        </div>
+        <div class="distribution-legend">
+          <div class="legend-item"><i class="legend-dot exact"></i><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong></div>
+          <div class="legend-item"><i class="legend-dot high"></i><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong></div>
+          <div class="legend-item"><i class="legend-dot review"></i><span>확인 권장</span><strong>${counts.review.toLocaleString("ko-KR")}</strong></div>
+          <div class="legend-item"><i class="legend-dot normal"></i><span>특이 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong></div>
+        </div>
+        <div class="threshold">
+          <div class="threshold-label"><span>높은 유사도 기준</span><strong>${Math.round(threshold * 100)}%</strong></div>
+          <div class="threshold-track"><span style="width:${((threshold - 0.5) / 0.45) * 100}%"></span><i style="left:${((threshold - 0.5) / 0.45) * 100}%"></i></div>
+        </div>
+      </article>
+      <article class="panel">
+        <div class="card-title-row"><div><span class="section-kicker">과목별 현황</span><h2>우선 확인할 과목</h2></div><span>▥</span></div>
+        <div class="subject-list">${subjectItems || '<p class="muted">과목 정보가 없습니다.</p>'}</div>
+      </article>
+    </section>
+    <section class="results-panel" id="results">
+      <div class="results-heading">
+        <div><span class="section-kicker">상세 점검 결과</span><h2>기록별 비교 <em>${orderedRecords.length.toLocaleString("ko-KR")}</em></h2></div>
+        <div class="snapshot-controls">
+          <div class="snapshot-search">${search ? `검색: ${escapeHtml(search)}` : "이름, 학급, 과목, 내용 검색"}</div>
+          <div class="snapshot-select">${escapeHtml(currentRiskLabel)}⌄</div>
+          <div class="snapshot-select">${escapeHtml(currentSortLabel)}⌄</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>점검 결과</th><th>학생 / 학급</th><th>과목</th><th>최대 유사도</th><th>세부능력 및 특기사항</th><th>비교</th></tr></thead>
+          <tbody>${reportRows || '<tr><td colspan="6">조건에 맞는 기록이 없습니다.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="table-footer">현재 조건에 맞는 전체 ${orderedRecords.length.toLocaleString("ko-KR")}건을 저장했습니다.</div>
+    </section>
+    <div class="report-notice">이 결과는 문장 내 고유 단어의 교집합과 합집합을 비교한 자카드 유사도입니다. 단어 순서와 교육적 맥락은 별도로 판단하지 않으므로, 표시된 두 문장을 직접 대조해 최종 확인하세요.</div>
   </main>
+  <footer class="site-footer"><span>과세특 점검 도움자료 웹 버전</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
+  ${comparisonDialogs}
 </body>
 </html>`;
     const blob = new Blob(["\uFEFF", html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `과세특_점검결과_${date}.html`;
+    anchor.download = `과세특_점검결과화면_${date}.html`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -1478,7 +1625,7 @@ export default function Home() {
                 onClick={exportHtmlReport}
               >
                 <FileText size={19} />
-                HTML 보고서 저장
+                결과 화면 HTML 저장
               </button>
               <button className="export-button" type="button" onClick={exportWorkbook}>
                 <Download size={19} />
@@ -1832,13 +1979,13 @@ export default function Home() {
             <div className="highlight-legend" aria-label="문장 강조 표시 안내">
               <span>
                 <i className="exact" />
-                완전 일치 문장
+                완전 일치 문장·공통 부분
               </span>
               <span>
                 <i className="similar" />
-                높은 유사도 문장 내 다른 부분
+                문장 내 다른 부분
               </span>
-              <small>완전 일치는 문장 전체, 높은 유사도는 서로 다른 단어·구절만 표시합니다.</small>
+              <small>붉은 음영은 같은 부분, 붉은 글자는 서로 다른 부분입니다.</small>
             </div>
             <div className="comparison-grid">
               <article>
