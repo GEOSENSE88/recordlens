@@ -219,7 +219,7 @@ function isNeisExport(rows: unknown[][]) {
       normalizeHeader(values[0]).includes("번호") &&
       normalizeHeader(values[1]).includes("성명") &&
       normalizeHeader(values[2]).includes("학년") &&
-      normalizeHeader(values[3]).includes(HEADER_TEXT)
+      normalizeHeader(values[3]).includes(normalizeHeader(HEADER_TEXT))
     );
   });
 }
