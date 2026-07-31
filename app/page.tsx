@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Download,
   FileCheck2,
+  FileText,
   Files,
   FileSpreadsheet,
   Info,
@@ -70,6 +71,12 @@ type SentenceHighlight = {
   text: string;
   level: "none" | "similar" | "exact";
   score: number;
+  matchedText: string;
+};
+
+type DiffSegment = {
+  text: string;
+  changed: boolean;
 };
 
 const PAGE_SIZE = 30;
@@ -637,6 +644,7 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
     const normalized = normalizeText(sentence);
     let bestScore = 0;
     let bestIntersection = 0;
+    let matchedText = "";
     let exact = false;
 
     for (const candidate of comparisonSentences) {
@@ -644,6 +652,7 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
       if (normalized.length >= 8 && normalized === candidateNormalized) {
         exact = true;
         bestScore = 1;
+        matchedText = candidate;
         break;
       }
 
@@ -651,6 +660,7 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
       if (result.score > bestScore) {
         bestScore = result.score;
         bestIntersection = result.intersection;
+        matchedText = candidate;
       }
     }
 
@@ -658,8 +668,65 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
       text: sentence,
       level: exact ? "exact" : bestScore >= 0.5 && bestIntersection >= 3 ? "similar" : "none",
       score: bestScore,
+      matchedText,
     };
   });
+}
+
+function diffSegments(text: string, comparisonText: string): DiffSegment[] {
+  const tokenize = (value: string) =>
+    value.match(/[\p{L}\p{N}]+|[^\p{L}\p{N}\s]+|\s+/gu) ?? [value];
+  const normalizeToken = (value: string) =>
+    /[\p{L}\p{N}]/u.test(value) ? value.normalize("NFKC").toLocaleLowerCase("ko-KR") : "";
+
+  const tokens = tokenize(text);
+  const comparisonTokens = tokenize(comparisonText);
+  const words = tokens
+    .map((token, tokenIndex) => ({ tokenIndex, normalized: normalizeToken(token) }))
+    .filter((token) => token.normalized);
+  const comparisonWords = comparisonTokens
+    .map((token, tokenIndex) => ({ tokenIndex, normalized: normalizeToken(token) }))
+    .filter((token) => token.normalized);
+
+  const lengths = Array.from({ length: words.length + 1 }, () =>
+    Array<number>(comparisonWords.length + 1).fill(0),
+  );
+
+  for (let leftIndex = 1; leftIndex <= words.length; leftIndex += 1) {
+    for (let rightIndex = 1; rightIndex <= comparisonWords.length; rightIndex += 1) {
+      lengths[leftIndex][rightIndex] =
+        words[leftIndex - 1].normalized === comparisonWords[rightIndex - 1].normalized
+          ? lengths[leftIndex - 1][rightIndex - 1] + 1
+          : Math.max(lengths[leftIndex - 1][rightIndex], lengths[leftIndex][rightIndex - 1]);
+    }
+  }
+
+  const unchangedTokenIndexes = new Set<number>();
+  let leftIndex = words.length;
+  let rightIndex = comparisonWords.length;
+  while (leftIndex > 0 && rightIndex > 0) {
+    if (words[leftIndex - 1].normalized === comparisonWords[rightIndex - 1].normalized) {
+      unchangedTokenIndexes.add(words[leftIndex - 1].tokenIndex);
+      leftIndex -= 1;
+      rightIndex -= 1;
+    } else if (lengths[leftIndex - 1][rightIndex] >= lengths[leftIndex][rightIndex - 1]) {
+      leftIndex -= 1;
+    } else {
+      rightIndex -= 1;
+    }
+  }
+
+  return tokens.reduce<DiffSegment[]>((segments, token, tokenIndex) => {
+    const normalized = normalizeToken(token);
+    const changed = Boolean(normalized) && !unchangedTokenIndexes.has(tokenIndex);
+    const previous = segments.at(-1);
+    if (previous && previous.changed === changed) {
+      previous.text += token;
+    } else {
+      segments.push({ text: token, changed });
+    }
+    return segments;
+  }, []);
 }
 
 function HighlightedComparisonText({
@@ -677,6 +744,26 @@ function HighlightedComparisonText({
         }
 
         const label = sentence.level === "exact" ? "완전 일치" : "높은 유사도";
+        if (sentence.level === "similar") {
+          return (
+            <span
+              className="sentence-highlight similar"
+              key={`${index}-${sentence.text}`}
+              title={`${label} ${formatPercent(sentence.score)} · 다른 부분만 강조`}
+            >
+              {diffSegments(sentence.text, sentence.matchedText).map((segment, segmentIndex) =>
+                segment.changed ? (
+                  <mark className="diff-fragment" key={`${segmentIndex}-${segment.text}`}>
+                    {segment.text}
+                  </mark>
+                ) : (
+                  <span key={`${segmentIndex}-${segment.text}`}>{segment.text}</span>
+                ),
+              )}
+            </span>
+          );
+        }
+
         return (
           <mark
             className={`sentence-highlight ${sentence.level}`}
@@ -689,6 +776,36 @@ function HighlightedComparisonText({
       })}
     </p>
   );
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function highlightedReportHtml(text: string, comparisonText: string) {
+  return highlightSentences(text, comparisonText)
+    .map((sentence) => {
+      const content = escapeHtml(sentence.text);
+      if (sentence.level === "none") return content;
+      const label = sentence.level === "exact" ? "완전 일치" : "높은 유사도";
+      if (sentence.level === "similar") {
+        const diffContent = diffSegments(sentence.text, sentence.matchedText)
+          .map((segment) =>
+            segment.changed
+              ? `<mark class="diff-fragment">${escapeHtml(segment.text)}</mark>`
+              : escapeHtml(segment.text),
+          )
+          .join("");
+        return `<span class="similar" title="${label} ${formatPercent(sentence.score)} · 다른 부분만 강조">${diffContent}</span>`;
+      }
+      return `<mark class="${sentence.level}" title="${label} ${formatPercent(sentence.score)}">${content}</mark>`;
+    })
+    .join("");
 }
 
 export default function Home() {
@@ -975,6 +1092,165 @@ export default function Home() {
     XLSX.writeFile(workbook, `과세특_점검결과_${date}.xlsx`, { compression: true });
   }
 
+  function exportHtmlReport() {
+    const generatedAt =
+      reportTime ||
+      new Intl.DateTimeFormat("ko-KR", {
+        dateStyle: "long",
+        timeStyle: "short",
+      }).format(new Date());
+    const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+    const orderedRecords = [...records].sort(
+      (left, right) =>
+        right.similarity - left.similarity || left.name.localeCompare(right.name, "ko"),
+    );
+    const reportRows = orderedRecords
+      .map((record, index) => {
+        const status = riskStatus(record, threshold);
+        const keywords = sharedKeywords(record);
+        return `
+          <article class="record-card">
+            <div class="record-heading">
+              <div>
+                <span class="status ${status}">${escapeHtml(riskLabel(status))}</span>
+                <h3>${index + 1}. ${escapeHtml(record.name)} · ${escapeHtml(record.subject)}</h3>
+                <p>${escapeHtml(record.className)} · ${escapeHtml(record.grade)}</p>
+              </div>
+              <div class="score">
+                <span>최대 유사도</span>
+                <strong>${formatPercent(record.similarity)}</strong>
+              </div>
+            </div>
+            <div class="comparison">
+              <section>
+                <h4>A · ${escapeHtml(record.name)}</h4>
+                <p>${highlightedReportHtml(record.text, record.matchText)}</p>
+              </section>
+              <section>
+                <h4>B · ${escapeHtml(record.matchName || "비교 대상 없음")}</h4>
+                <p>${
+                  record.matchText
+                    ? highlightedReportHtml(record.matchText, record.text)
+                    : '<span class="empty">비교할 다른 기록이 없습니다.</span>'
+                }</p>
+              </section>
+            </div>
+            ${
+              keywords.length
+                ? `<div class="keywords"><span>공통 단어</span>${keywords
+                    .map((keyword) => `<i>${escapeHtml(keyword)}</i>`)
+                    .join("")}</div>`
+                : ""
+            }
+            <footer>원본: ${escapeHtml(record.sourceFile)} · ${record.sourceRow}행</footer>
+          </article>`;
+      })
+      .join("");
+    const subjectRows = subjectSummaries
+      .map(
+        (summary) => `
+          <tr>
+            <td>${escapeHtml(summary.subject)}</td>
+            <td>${summary.total.toLocaleString("ko-KR")}</td>
+            <td>${summary.exact.toLocaleString("ko-KR")}</td>
+            <td>${summary.high.toLocaleString("ko-KR")}</td>
+            <td>${summary.review.toLocaleString("ko-KR")}</td>
+          </tr>`,
+      )
+      .join("");
+    const html = `<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>과세특 점검 결과 · ${escapeHtml(generatedAt)}</title>
+  <style>
+    :root { color-scheme: light; --navy:#102d50; --teal:#0f766e; --line:#dce4ea; --muted:#65758a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f5f8f7; color:#172b45; font-family:"Noto Sans KR","Malgun Gothic",sans-serif; line-height:1.65; }
+    .page { width:min(1120px,calc(100% - 32px)); margin:0 auto; padding:42px 0 70px; }
+    .report-header { padding:34px; border-radius:24px; background:var(--navy); color:white; }
+    .report-header small { color:#7ce0d2; font-weight:700; }
+    .report-header h1 { margin:8px 0 10px; font-size:32px; }
+    .report-header p { margin:0; color:#c5d3e2; font-size:13px; }
+    .privacy { margin-top:18px; padding:12px 15px; border-radius:11px; background:rgba(255,255,255,.08); color:#d8e4ee; font-size:11px; }
+    .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:18px 0; }
+    .summary article { padding:19px; border:1px solid var(--line); border-radius:16px; background:white; }
+    .summary span { color:var(--muted); font-size:11px; }
+    .summary strong { display:block; margin-top:5px; font-size:27px; }
+    .panel { margin:18px 0; padding:24px; border:1px solid var(--line); border-radius:18px; background:white; }
+    .panel h2 { margin:0 0 16px; font-size:19px; }
+    table { width:100%; border-collapse:collapse; font-size:11px; }
+    th,td { padding:10px 12px; border-bottom:1px solid #e9eef1; text-align:left; }
+    th { background:#f5f8f7; color:var(--muted); }
+    .records-title { margin:32px 0 14px; font-size:22px; }
+    .record-card { margin-bottom:16px; overflow:hidden; border:1px solid var(--line); border-radius:18px; background:white; break-inside:avoid; }
+    .record-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding:20px 22px; border-bottom:1px solid var(--line); }
+    .record-heading h3 { margin:9px 0 2px; font-size:16px; }
+    .record-heading p { margin:0; color:var(--muted); font-size:10px; }
+    .status { display:inline-block; padding:4px 8px; border-radius:7px; font-size:9px; font-weight:800; }
+    .status.exact { background:#fff0ee; color:#b33d3d; }
+    .status.high { background:#fff6e7; color:#a86416; }
+    .status.review { background:#f4efff; color:#6f55ab; }
+    .status.normal { background:#e6f7f2; color:#0f766e; }
+    .score { flex:0 0 auto; text-align:right; }
+    .score span { display:block; color:var(--muted); font-size:9px; }
+    .score strong { color:var(--teal); font-size:23px; }
+    .comparison { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:18px 22px; }
+    .comparison section { padding:16px; border:1px solid #e1e7eb; border-radius:13px; background:#fbfcfb; }
+    .comparison h4 { margin:0 0 12px; padding-bottom:9px; border-bottom:1px solid #e1e7eb; font-size:11px; }
+    .comparison p { min-height:90px; margin:0; color:#40556d; font-size:11px; white-space:pre-wrap; }
+    mark { margin:0 -1px; padding:2px 3px; border-radius:4px; color:inherit; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+    mark.exact { background:#ffe0dc; box-shadow:inset 0 -1px 0 rgba(198,66,66,.24); }
+    .similar .diff-fragment { background:#ffd98a; box-shadow:inset 0 -1px 0 rgba(183,100,12,.32); }
+    .empty { color:#9aa6b4; }
+    .keywords { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:0 22px 18px; }
+    .keywords span { margin-right:4px; color:var(--muted); font-size:9px; font-weight:700; }
+    .keywords i { padding:4px 7px; border-radius:7px; background:#e6f7f2; color:var(--teal); font-size:8px; font-style:normal; font-weight:700; }
+    .record-card footer { padding:11px 22px; border-top:1px solid var(--line); background:#f8faf9; color:#8b98a7; font-size:9px; }
+    .report-footer { margin-top:24px; color:#7e8c9c; font-size:10px; text-align:center; }
+    @media (max-width:760px) { .summary,.comparison { grid-template-columns:1fr; } .report-header { padding:26px; } }
+    @media print { body { background:white; } .page { width:100%; padding:0; } .report-header { border-radius:0; } .record-card { box-shadow:none; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="report-header">
+      <small>교과 세부능력 및 특기사항</small>
+      <h1>과세특 점검 결과</h1>
+      <p>${escapeHtml(generatedAt)} · ${sourceFiles.length}개 파일 · ${records.length.toLocaleString("ko-KR")}건</p>
+      <div class="privacy">이 보고서에는 학생 기록이 포함될 수 있습니다. 안전한 장소에 보관하고 공유 전 개인정보를 확인하세요.</div>
+    </header>
+    <section class="summary" aria-label="점검 요약">
+      <article><span>전체 기록</span><strong>${records.length.toLocaleString("ko-KR")}</strong></article>
+      <article><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong></article>
+      <article><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong></article>
+      <article><span>확인 권장</span><strong>${counts.review.toLocaleString("ko-KR")}</strong></article>
+    </section>
+    <section class="panel">
+      <h2>과목별 현황</h2>
+      <table>
+        <thead><tr><th>과목</th><th>전체</th><th>완전 일치</th><th>높은 유사도</th><th>확인 권장</th></tr></thead>
+        <tbody>${subjectRows}</tbody>
+      </table>
+    </section>
+    <h2 class="records-title">기록별 비교</h2>
+    ${reportRows}
+    <p class="report-footer">과세특 점검 도우미 · 유사도는 보조 지표이며 최종 판단은 원문을 직접 확인해 주세요.</p>
+  </main>
+</body>
+</html>`;
+    const blob = new Blob(["\uFEFF", html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `과세특_점검결과_${date}.html`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   const issueCount = counts.exact + counts.high + counts.review;
   const progressWidth = progress?.stage === "comparing" ? progress.value : progress?.value ?? 0;
 
@@ -1021,7 +1297,7 @@ export default function Home() {
                   <Check size={16} /> 자카드 유사도 분석
                 </span>
                 <span>
-                  <Check size={16} /> 점검 결과 엑셀 저장
+                  <Check size={16} /> 점검 결과 엑셀·HTML 저장
                 </span>
               </div>
               <div className="privacy-note">
@@ -1195,10 +1471,20 @@ export default function Home() {
                 정리했습니다. 유사도는 보조 지표이므로 원문을 함께 확인해 주세요.
               </p>
             </div>
-            <button className="export-button" type="button" onClick={exportWorkbook}>
-              <Download size={19} />
-              점검 결과 엑셀 받기
-            </button>
+            <div className="export-actions">
+              <button
+                className="export-button secondary"
+                type="button"
+                onClick={exportHtmlReport}
+              >
+                <FileText size={19} />
+                HTML 보고서 저장
+              </button>
+              <button className="export-button" type="button" onClick={exportWorkbook}>
+                <Download size={19} />
+                점검 결과 엑셀 받기
+              </button>
+            </div>
           </section>
 
           <section className="summary-grid" aria-label="점검 요약">
@@ -1550,9 +1836,9 @@ export default function Home() {
               </span>
               <span>
                 <i className="similar" />
-                높은 유사도 문장
+                높은 유사도 문장 내 다른 부분
               </span>
-              <small>강조된 문장에 마우스를 올리면 문장별 유사도를 볼 수 있습니다.</small>
+              <small>완전 일치는 문장 전체, 높은 유사도는 서로 다른 단어·구절만 표시합니다.</small>
             </div>
             <div className="comparison-grid">
               <article>
