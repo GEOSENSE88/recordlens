@@ -43,3 +43,9 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# local NEIS/student workbook data
+*.xls
+*.xlsx
+*.xlsm
+*.xlsb
