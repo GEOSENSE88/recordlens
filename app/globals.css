@@ -1201,6 +1201,36 @@ tbody tr:hover {
   -webkit-line-clamp: 2;
 }
 
+.inspection-text-highlight {
+  margin: 0 1px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  background: #fff0c9;
+  color: #945b10;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.inspection-text-highlight.prohibited {
+  background: #ffdeda;
+  color: #a52f2f;
+  font-weight: 800;
+}
+
+.inspection-text-highlight.institution,
+.inspection-text-highlight.business {
+  background: #ffe8bd;
+  color: #9b5710;
+  font-weight: 800;
+}
+
+.inspection-text-highlight.typo,
+.inspection-text-highlight.symbol {
+  background: #efe7ff;
+  color: #6d48a1;
+  font-weight: 800;
+}
+
 .record-issues {
   display: flex;
   align-items: center;
@@ -1507,6 +1537,38 @@ footer {
   border: 1px solid #f0d8bd;
   border-radius: 14px;
   background: #fffaf3;
+}
+
+.inspection-source {
+  margin: 22px 28px 0;
+  padding: 18px;
+  border: 1px solid #e5d6bc;
+  border-radius: 14px;
+  background: #fffdf8;
+}
+
+.inspection-source > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.inspection-source strong {
+  font-size: 12px;
+}
+
+.inspection-source small {
+  color: #8b98a7;
+  font-size: 9px;
+}
+
+.inspection-source p {
+  margin: 12px 0 0;
+  color: #40556d;
+  font-size: 11px;
+  line-height: 1.9;
+  white-space: pre-wrap;
 }
 
 .rule-findings-heading {

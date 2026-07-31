@@ -126,10 +126,111 @@ const TYPO_RULES: TextRule[] = [
 
 const SPECIAL_SYMBOL_EXPRESSION =
   /[①-⑳ⓐ-ⓩ●■◆◇★☆▶▷※♣♠♥♦→←↑↓✓✔☎☞☜@#^_=+~`|\\<>{}\[\]]|\p{Extended_Pictographic}/gu;
-const INSTITUTION_EXPRESSION =
-  /(?:^|[\s,.;:!?("'‘])([가-힣A-Za-z0-9·]{2,24}(?:대학교|전문대학|고등학교|중학교|초등학교|연구원|연구소|학회|협회|재단|방송국|신문사|병원|박물관|미술관|도서관|공단|공사))(?=$|[\s,.;:!?)]|["'’])/gu;
-const BUSINESS_EXPRESSION =
-  /(?:주식회사|\(주\)|㈜)\s*[가-힣A-Za-z0-9·]+|삼성|엘지|LG|현대|SK|네이버|카카오|구글|유튜브|넷플릭스|애플|마이크로소프트|아마존|스타벅스|맥도날드|롯데|쿠팡|배달의민족|인스타그램|페이스북|틱톡|ChatGPT|챗GPT/giu;
+
+const SPECIFIC_INSTITUTIONS = [
+  "KBS 방송국",
+  "KBS",
+  "EU",
+  "UN",
+  "통계청",
+  "경찰청",
+  "수사청",
+  "교육청",
+  "국립국어원",
+  "헌법재판소",
+  "종로경찰서",
+  "독립협회",
+  "한국음악저작권협회",
+  "한국음악저작권 협회",
+  "국제방사선방호위원회",
+  "한국과학기술원",
+  "국제원자력기구",
+  "세계원자력발전사업자협회",
+  "미국심장학회",
+  "식품안전나라",
+  "한국전통문화전당",
+  "나눔의 집",
+  "나눔의집",
+  "달빛어린이병원",
+  "MIT",
+  "OECD",
+  "OECE",
+  "유엔",
+];
+
+const SPECIFIC_BUSINESSES = [
+  "필립스",
+  "카카오 헬스케어",
+  "카카오헬스케어",
+  "카카오톡",
+  "카카오페이",
+  "스타벅스",
+  "스페이스X",
+  "SpaceX",
+  "ChatGPT",
+  "챗GPT",
+  "다이소",
+  "롯데월드",
+  "세라젬",
+  "VIPKID",
+  "나이키",
+  "애플",
+  "아디다스",
+  "LG",
+  "구글",
+  "Threads",
+  "스레드",
+  "디즈니",
+  "삼성전자",
+  "삼성그룹",
+  "현대자동차",
+  "현대그룹",
+  "SK",
+  "네이버",
+  "유튜브",
+  "넷플릭스",
+  "마이크로소프트",
+  "아마존",
+  "맥도날드",
+  "쿠팡",
+  "배달의민족",
+  "인스타그램",
+  "페이스북",
+  "틱톡",
+  "한강 버거",
+  "프라다",
+];
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function exactEntityExpression(values: string[]) {
+  const pattern = values
+    .map(escapeRegExp)
+    .sort((left, right) => right.length - left.length)
+    .join("|");
+  return new RegExp(
+    `(?<![가-힣A-Za-z0-9])(?:${pattern})(?=$|[\\s,.;:!?·→←\\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\\s,.;:!?·→←\\-)]|["'’]))`,
+    "giu",
+  );
+}
+
+const SPECIFIC_INSTITUTION_EXPRESSION = exactEntityExpression(SPECIFIC_INSTITUTIONS);
+const STRICT_SCHOOL_EXPRESSION =
+  /(?<![가-힣A-Za-z0-9])(?:[가-힣A-Za-z0-9·]{2,24})(?:대학교|전문대학|사관학교|고등학교|중학교|초등학교)(?=$|[\s,.;:!?·→←\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\s,.;:!?·→←\-)]|["'’]))/gu;
+const NAMED_INSTITUTION_EXPRESSION =
+  /(?<![가-힣A-Za-z0-9])(?:한국|대한|국립|국제|세계|미국|서울|충북|청주|산남|[A-Z]{2,})[가-힣A-Za-z0-9·]{1,20}(?:연구원|연구소|학회|협회|재단|방송국|신문사|병원|박물관|미술관|도서관|공단|공사|위원회|전당)(?=$|[\s,.;:!?·→←\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\s,.;:!?·→←\-)]|["'’]))/gu;
+const SPECIFIC_PLACE_INSTITUTION_EXPRESSION =
+  /(?<![가-힣A-Za-z0-9])(?:[가-힣]{2,12})(?:공항|경찰서)(?=$|[\s,.;:!?·→←\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\s,.;:!?·→←\-)]|["'’]))/gu;
+const BUSINESS_EXPRESSION = new RegExp(
+  `(?<![가-힣A-Za-z0-9])(?:(?:주식회사|\\(주\\)|㈜)\\s*[가-힣A-Za-z0-9·]+|${SPECIFIC_BUSINESSES.map(
+    escapeRegExp,
+  )
+    .sort((left, right) => right.length - left.length)
+    .join("|")})(?=$|[\\s,.;:!?·→←\\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\\s,.;:!?·→←\\-)]|["'’]))`,
+  "giu",
+);
 const ALLOWED_INSTITUTIONS = new Set([
   "대한민국학술원",
   "국사편찬위원회",
@@ -180,19 +281,27 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     });
   }
 
-  INSTITUTION_EXPRESSION.lastIndex = 0;
-  for (const match of text.matchAll(INSTITUTION_EXPRESSION)) {
-    const institution = match[1];
-    if (ALLOWED_INSTITUTIONS.has(institution)) continue;
-    issues.push({
-      type: "institution",
-      label: "기관명",
-      match: institution,
-      guidance: "구체적인 대학·기관·학교명으로 보입니다. 허용되는 교육관련기관 또는 예외 항목인지 확인해 주세요.",
-      reference: "2026 기재요령 p.19",
-      severity: "warning",
-      index: (match.index ?? 0) + match[0].indexOf(institution),
-    });
+  for (const expression of [
+    SPECIFIC_INSTITUTION_EXPRESSION,
+    STRICT_SCHOOL_EXPRESSION,
+    NAMED_INSTITUTION_EXPRESSION,
+    SPECIFIC_PLACE_INSTITUTION_EXPRESSION,
+  ]) {
+    expression.lastIndex = 0;
+    for (const match of text.matchAll(expression)) {
+      const institution = match[0];
+      if (ALLOWED_INSTITUTIONS.has(institution)) continue;
+      issues.push({
+        type: "institution",
+        label: "기관명",
+        match: institution,
+        guidance:
+          "구체적인 기관·대학·학교의 실명으로 보입니다. 2024·2025 교사 점검 사례와 허용 예외를 대조해 주세요.",
+        reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
+        severity: "warning",
+        index: match.index ?? 0,
+      });
+    }
   }
 
   BUSINESS_EXPRESSION.lastIndex = 0;
@@ -201,8 +310,9 @@ export function inspectRecordText(text: string): InspectionIssue[] {
       type: "business",
       label: "상호명",
       match: match[0],
-      guidance: "구체적인 상호명·브랜드명으로 보입니다. 서술형 항목에 입력 가능한지 확인해 주세요.",
-      reference: "2026 기재요령 p.19",
+      guidance:
+        "구체적인 회사·제품·서비스의 실명으로 보입니다. 2024·2025 교사 점검 사례와 허용 예외를 대조해 주세요.",
+      reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
       severity: "warning",
       index: match.index ?? 0,
     });

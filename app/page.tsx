@@ -849,6 +849,62 @@ function HighlightedComparisonText({
   );
 }
 
+function inspectionSegments(text: string, issues: InspectionIssue[]) {
+  const candidates = [...issues]
+    .filter(
+      (issue) =>
+        issue.index >= 0 &&
+        issue.index < text.length &&
+        issue.match.length > 0 &&
+        issue.index + issue.match.length <= text.length,
+    )
+    .sort(
+      (left, right) =>
+        left.index - right.index ||
+        Number(right.severity === "danger") - Number(left.severity === "danger") ||
+        right.match.length - left.match.length,
+    );
+  const segments: Array<{ text: string; issue?: InspectionIssue }> = [];
+  let cursor = 0;
+
+  for (const issue of candidates) {
+    const start = issue.index;
+    const end = start + issue.match.length;
+    if (start < cursor) continue;
+    if (start > cursor) segments.push({ text: text.slice(cursor, start) });
+    segments.push({ text: text.slice(start, end), issue });
+    cursor = end;
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor) });
+  return segments;
+}
+
+function InspectionHighlightedText({
+  text,
+  issues,
+}: {
+  text: string;
+  issues: InspectionIssue[];
+}) {
+  return (
+    <>
+      {inspectionSegments(text, issues).map((segment, index) =>
+        segment.issue ? (
+          <mark
+            className={`inspection-text-highlight ${segment.issue.type}`}
+            key={`${index}-${segment.issue.type}-${segment.text}`}
+            title={`${segment.issue.label}: ${segment.issue.guidance}`}
+          >
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={`${index}-${segment.text}`}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -856,6 +912,18 @@ function escapeHtml(value: unknown) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function inspectionHighlightedReportHtml(text: string, issues: InspectionIssue[]) {
+  return inspectionSegments(text, issues)
+    .map((segment) =>
+      segment.issue
+        ? `<mark class="inspection-text-highlight ${segment.issue.type}" title="${escapeHtml(
+            `${segment.issue.label}: ${segment.issue.guidance}`,
+          )}">${escapeHtml(segment.text)}</mark>`
+        : escapeHtml(segment.text),
+    )
+    .join("");
 }
 
 function highlightedReportHtml(text: string, comparisonText: string) {
@@ -1260,7 +1328,7 @@ export default function Home() {
                 ? `<span class="muted">↔ ${escapeHtml(record.matchName)}</span>`
                 : ""
             }</td>
-            <td><p class="record-preview">${escapeHtml(record.text)}</p></td>
+            <td><p class="record-preview">${inspectionHighlightedReportHtml(record.text, record.issues)}</p></td>
             <td><div class="issue-pills">${
               record.issues.length
                 ? record.issues
@@ -1311,7 +1379,11 @@ export default function Home() {
               </header>
               ${
                 issueItems
-                  ? `<section class="rule-findings"><h3>2026 기재요령·문장 점검</h3><ul>${issueItems}</ul><p>자동 탐지는 보조 기능입니다. 기관명·상호명과 맞춤법은 문맥 및 허용 예외를 직접 확인해 주세요.</p></section>`
+                  ? `<section class="inspection-source">
+                      <div><strong>지적 위치가 표시된 원문</strong><small>색칠된 표현에 마우스를 올리면 점검 이유를 확인할 수 있습니다.</small></div>
+                      <p>${inspectionHighlightedReportHtml(record.text, record.issues)}</p>
+                    </section>
+                    <section class="rule-findings"><h3>2026 기재요령·문장 점검</h3><ul>${issueItems}</ul><p>자동 탐지는 보조 기능입니다. 기관명·상호명과 맞춤법은 문맥 및 허용 예외를 직접 확인해 주세요.</p></section>`
                   : ""
               }
               ${
@@ -1468,6 +1540,10 @@ export default function Home() {
     .muted { display:block; margin-top:4px; overflow:hidden; color:#8b98a7; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
     .subject-chip { display:inline-block; max-width:100%; overflow:hidden; padding:5px 8px; border-radius:7px; background:#eef4fa; color:#415b77; font-size:9px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
     .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#40556d; font-size:10px; line-height:1.75; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+    .inspection-text-highlight { margin:0 1px; padding:1px 2px; border-radius:4px; background:#fff0c9; color:#945b10; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+    .inspection-text-highlight.prohibited { background:#ffdeda; color:#a52f2f; font-weight:800; }
+    .inspection-text-highlight.institution,.inspection-text-highlight.business { background:#ffe8bd; color:#9b5710; font-weight:800; }
+    .inspection-text-highlight.typo,.inspection-text-highlight.symbol { background:#efe7ff; color:#6d48a1; font-weight:800; }
     .issue-pills { display:flex; align-items:flex-start; flex-direction:column; gap:4px; }
     .issue-pills span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:6px; background:#f3f0fa; color:#6f55ab; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
     .issue-pills span.prohibited { background:#fff0ee; color:#b33d3d; }
@@ -1498,6 +1574,11 @@ export default function Home() {
     .rule-findings li mark { padding:2px 5px; background:#fff0ee; color:#b33d3d; font-size:9px; }
     .rule-findings li p { margin:6px 0 2px; color:#56687d; font-size:9px; }
     .rule-findings li small,.rule-findings > p { color:#8b98a7; font-size:8px; }
+    .inspection-source { margin:18px 25px 0; padding:18px; border:1px solid #e5d6bc; border-radius:14px; background:#fffdf8; }
+    .inspection-source > div { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .inspection-source strong { font-size:12px; }
+    .inspection-source small { color:#8b98a7; font-size:8px; }
+    .inspection-source p { margin:12px 0 0; color:#40556d; font-size:11px; line-height:1.9; white-space:pre-wrap; }
     .highlight-guide { display:flex; gap:18px; padding:15px 25px 0; color:#66768b; font-size:9px; font-weight:700; }
     .highlight-guide span { display:flex; align-items:center; gap:6px; } .highlight-guide i { width:13px; height:13px; border-radius:4px; }
     .highlight-guide i.exact { background:#ffe0dc; } .highlight-guide i.similar { position:relative; background:white; box-shadow:inset 0 0 0 1px #efb7b2; }
@@ -2105,7 +2186,9 @@ export default function Home() {
                           )}
                         </td>
                         <td>
-                          <p className="record-preview">{record.text}</p>
+                          <p className="record-preview">
+                            <InspectionHighlightedText text={record.text} issues={record.issues} />
+                          </p>
                         </td>
                         <td>
                           <div className="record-issues">
@@ -2241,27 +2324,41 @@ export default function Home() {
               </button>
             </div>
             {selectedRecord.issues.length > 0 && (
-              <section className="rule-findings">
-                <div className="rule-findings-heading">
+              <>
+                <section className="inspection-source">
                   <div>
-                    <span>기재요령 보조 점검</span>
-                    <h3>확인할 표현 {selectedRecord.issues.length}건</h3>
+                    <strong>지적 위치가 표시된 원문</strong>
+                    <small>색칠된 표현에 마우스를 올리면 점검 이유가 표시됩니다.</small>
                   </div>
-                  <small>자동 탐지 결과이므로 문맥과 예외를 확인하세요.</small>
-                </div>
-                <div className="rule-finding-list">
-                  {selectedRecord.issues.map((issue, index) => (
-                    <article key={`${issue.type}-${issue.index}-${index}`}>
-                      <div>
-                        <span className={`inspection-chip ${issue.severity}`}>{issue.label}</span>
-                        <strong>{issue.match}</strong>
-                        <small>{issue.reference}</small>
-                      </div>
-                      <p>{issue.guidance}</p>
-                    </article>
-                  ))}
-                </div>
-              </section>
+                  <p>
+                    <InspectionHighlightedText
+                      text={selectedRecord.text}
+                      issues={selectedRecord.issues}
+                    />
+                  </p>
+                </section>
+                <section className="rule-findings">
+                  <div className="rule-findings-heading">
+                    <div>
+                      <span>기재요령 보조 점검</span>
+                      <h3>확인할 표현 {selectedRecord.issues.length}건</h3>
+                    </div>
+                    <small>자동 탐지 결과이므로 문맥과 예외를 확인하세요.</small>
+                  </div>
+                  <div className="rule-finding-list">
+                    {selectedRecord.issues.map((issue, index) => (
+                      <article key={`${issue.type}-${issue.index}-${index}`}>
+                        <div>
+                          <span className={`inspection-chip ${issue.severity}`}>{issue.label}</span>
+                          <strong>{issue.match}</strong>
+                          <small>{issue.reference}</small>
+                        </div>
+                        <p>{issue.guidance}</p>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </>
             )}
             {selectedRecord.matchText && (
               <>
