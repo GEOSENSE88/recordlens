@@ -1,8 +1,10 @@
 .git
 .github
+.playwright-cli
 .vinext
 .wrangler
 dist
+pages-dist
 node_modules
 outputs
 work

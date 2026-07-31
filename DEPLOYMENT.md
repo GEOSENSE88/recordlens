@@ -2,6 +2,14 @@
 
 이 웹앱은 업로드한 엑셀 파일을 브라우저 안에서만 처리합니다. 학생 기록 파일은 서버나 GitHub로 전송되지 않습니다.
 
+## GitHub Pages
+
+`main` 브랜치에 변경 사항이 올라가면 GitHub Actions가 정적 사이트를 빌드해 아래 주소에 게시합니다.
+
+```text
+https://geosense88.github.io/gwase-teuk-checker/
+```
+
 ## GitHub Actions와 컨테이너 이미지
 
 `main` 브랜치에 변경 사항이 올라가면 GitHub Actions가 Docker 이미지를 빌드해 아래 주소에 게시합니다.

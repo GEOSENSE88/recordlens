@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /.vinext/
+/.playwright-cli/
 /out/
 
 # misc
@@ -40,6 +41,7 @@ dev.stderr.log
 # typescript
 next-env.d.ts
 /dist/
+/pages-dist/
 /.wrangler/
 /outputs/
 /work/

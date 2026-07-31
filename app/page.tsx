@@ -66,6 +66,12 @@ type SubjectSummary = {
   grades: Record<string, number>;
 };
 
+type SentenceHighlight = {
+  text: string;
+  level: "none" | "similar" | "exact";
+  score: number;
+};
+
 const PAGE_SIZE = 30;
 const HEADER_TEXT = "세부능력 및 특기사항";
 const ACCEPTED_EXTENSIONS = [".xls", ".xlsx", ".xlsm", ".xlsb"];
@@ -607,6 +613,82 @@ function sharedKeywords(record: CheckRecord) {
   if (!record.matchText) return [];
   const other = new Set(normalizeText(record.matchText).split(" "));
   return record.tokens.filter((token) => token.length > 1 && other.has(token)).slice(0, 18);
+}
+
+function splitSentences(value: string) {
+  return value.match(/[^.!?。！？]+[.!?。！？]?\s*/g)?.filter((part) => part.trim()) ?? [value];
+}
+
+function sentenceSimilarity(left: string, right: string) {
+  const leftTokens = new Set(normalizeText(left).split(" ").filter((token) => token.length > 1));
+  const rightTokens = new Set(normalizeText(right).split(" ").filter((token) => token.length > 1));
+  const intersection = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const union = leftTokens.size + rightTokens.size - intersection;
+  return {
+    score: union > 0 ? intersection / union : 0,
+    intersection,
+  };
+}
+
+function highlightSentences(text: string, comparisonText: string): SentenceHighlight[] {
+  const comparisonSentences = splitSentences(comparisonText);
+
+  return splitSentences(text).map((sentence) => {
+    const normalized = normalizeText(sentence);
+    let bestScore = 0;
+    let bestIntersection = 0;
+    let exact = false;
+
+    for (const candidate of comparisonSentences) {
+      const candidateNormalized = normalizeText(candidate);
+      if (normalized.length >= 8 && normalized === candidateNormalized) {
+        exact = true;
+        bestScore = 1;
+        break;
+      }
+
+      const result = sentenceSimilarity(sentence, candidate);
+      if (result.score > bestScore) {
+        bestScore = result.score;
+        bestIntersection = result.intersection;
+      }
+    }
+
+    return {
+      text: sentence,
+      level: exact ? "exact" : bestScore >= 0.5 && bestIntersection >= 3 ? "similar" : "none",
+      score: bestScore,
+    };
+  });
+}
+
+function HighlightedComparisonText({
+  text,
+  comparisonText,
+}: {
+  text: string;
+  comparisonText: string;
+}) {
+  return (
+    <p className="comparison-text">
+      {highlightSentences(text, comparisonText).map((sentence, index) => {
+        if (sentence.level === "none") {
+          return <span key={`${index}-${sentence.text}`}>{sentence.text}</span>;
+        }
+
+        const label = sentence.level === "exact" ? "완전 일치" : "높은 유사도";
+        return (
+          <mark
+            className={`sentence-highlight ${sentence.level}`}
+            key={`${index}-${sentence.text}`}
+            title={`${label} ${formatPercent(sentence.score)}`}
+          >
+            {sentence.text}
+          </mark>
+        );
+      })}
+    </p>
+  );
 }
 
 export default function Home() {
@@ -1461,6 +1543,17 @@ export default function Home() {
                 찾았습니다.
               </p>
             </div>
+            <div className="highlight-legend" aria-label="문장 강조 표시 안내">
+              <span>
+                <i className="exact" />
+                완전 일치 문장
+              </span>
+              <span>
+                <i className="similar" />
+                높은 유사도 문장
+              </span>
+              <small>강조된 문장에 마우스를 올리면 문장별 유사도를 볼 수 있습니다.</small>
+            </div>
             <div className="comparison-grid">
               <article>
                 <div className="comparison-label">
@@ -1472,7 +1565,10 @@ export default function Home() {
                     </small>
                   </div>
                 </div>
-                <p>{selectedRecord.text}</p>
+                <HighlightedComparisonText
+                  text={selectedRecord.text}
+                  comparisonText={selectedRecord.matchText}
+                />
               </article>
               <article>
                 <div className="comparison-label">
@@ -1482,7 +1578,10 @@ export default function Home() {
                     <small>가장 유사한 다른 기록</small>
                   </div>
                 </div>
-                <p>{selectedRecord.matchText}</p>
+                <HighlightedComparisonText
+                  text={selectedRecord.matchText}
+                  comparisonText={selectedRecord.text}
+                />
               </article>
             </div>
             <div className="keyword-section">
