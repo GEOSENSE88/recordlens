@@ -1,9 +1,7 @@
 .git
 .github
-.openai
 .vinext
 .wrangler
-build
 dist
 node_modules
 outputs
