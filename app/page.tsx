@@ -24,8 +24,19 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import {
+  isCreativeActivityExport,
+  parseCreativeActivityRows,
+} from "./creative-records";
+import {
+  INSPECTION_LABELS,
+  inspectRecordText,
+  type InspectionIssue,
+  type InspectionIssueType,
+} from "./record-inspection";
 
 type RiskStatus = "exact" | "high" | "review" | "normal";
+type RecordType = "subject" | "creative";
 
 type SourceRow = {
   cells: string[];
@@ -50,6 +61,8 @@ type CheckRecord = {
   matchName: string;
   matchText: string;
   exactGroupSize: number;
+  recordType: RecordType;
+  issues: InspectionIssue[];
 };
 
 type ProgressState = {
@@ -82,6 +95,13 @@ type DiffSegment = {
 const PAGE_SIZE = 30;
 const HEADER_TEXT = "세부능력 및 특기사항";
 const ACCEPTED_EXTENSIONS = [".xls", ".xlsx", ".xlsm", ".xlsb"];
+const INSPECTION_TYPES: InspectionIssueType[] = [
+  "typo",
+  "symbol",
+  "prohibited",
+  "institution",
+  "business",
+];
 
 function cellText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -401,15 +421,51 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
         matchName: "",
         matchText: "",
         exactGroupSize: 1,
+        recordType: "subject",
+        issues: inspectRecordText(record.text),
       };
     });
+}
+
+function makeCreativeCheckRecords(rows: unknown[][], sourceFile: string): CheckRecord[] {
+  return parseCreativeActivityRows(rows).map((record, index) => {
+    const normalizedText = normalizeText(record.text);
+    return {
+      id: `creative-${index}-${record.sourceRow}`,
+      className: record.className,
+      grade: record.grade,
+      subject: record.activity,
+      name: record.name,
+      text: record.text,
+      sourceFile,
+      sourceRow: record.sourceRow,
+      rawCells: [
+        record.className,
+        record.number,
+        record.grade,
+        "",
+        record.activity,
+        record.name,
+        record.text,
+      ],
+      normalizedText,
+      tokens: [...new Set(normalizedText.split(" ").filter(Boolean))],
+      similarity: 0,
+      matchId: null,
+      matchName: "",
+      matchText: "",
+      exactGroupSize: 1,
+      recordType: "creative" as const,
+      issues: inspectRecordText(record.text),
+    };
+  });
 }
 
 function mergeCheckRecords(records: CheckRecord[]) {
   const merged = new Map<string, CheckRecord>();
 
   for (const record of records) {
-    const key = [record.className, record.grade, record.subject, record.name].join("|");
+    const key = [record.recordType, record.className, record.grade, record.subject, record.name].join("|");
     const existing = merged.get(key);
     if (existing) {
       if (!existing.text.includes(record.text)) {
@@ -427,6 +483,7 @@ function mergeCheckRecords(records: CheckRecord[]) {
       id: `record-${index}`,
       normalizedText,
       tokens: [...new Set(normalizedText.split(" ").filter(Boolean))],
+      issues: inspectRecordText(record.text),
     };
   });
 }
@@ -491,6 +548,8 @@ function makeRecords(sourceRows: SourceRow[]) {
         matchName: "",
         matchText: "",
         exactGroupSize: 1,
+        recordType: "subject",
+        issues: inspectRecordText(text),
       };
     })
     .filter((record) => record.normalizedText.length > 0 && record.text.length > 3);
@@ -563,7 +622,7 @@ async function analyzeSimilarity(
 function riskStatus(record: CheckRecord, threshold: number): RiskStatus {
   if (record.exactGroupSize > 1 || record.similarity >= 0.9995) return "exact";
   if (record.similarity >= threshold) return "high";
-  if (record.similarity >= Math.max(0.45, threshold - 0.2)) return "review";
+  if (record.issues.length || record.similarity >= Math.max(0.45, threshold - 0.2)) return "review";
   return "normal";
 }
 
@@ -571,8 +630,8 @@ function riskLabel(status: RiskStatus) {
   return {
     exact: "완전 일치",
     high: "높은 유사도",
-    review: "확인 권장",
-    normal: "특이 없음",
+    review: "확인 필요",
+    normal: "이상 없음",
   }[status];
 }
 
@@ -612,6 +671,8 @@ function makeDemoRecords(): CheckRecord[] {
       matchName: "",
       matchText: "",
       exactGroupSize: 1,
+      recordType: "subject",
+      issues: inspectRecordText(text),
     };
   });
 }
@@ -620,6 +681,12 @@ function sharedKeywords(record: CheckRecord) {
   if (!record.matchText) return [];
   const other = new Set(normalizeText(record.matchText).split(" "));
   return record.tokens.filter((token) => token.length > 1 && other.has(token)).slice(0, 18);
+}
+
+function sharedKeywordCount(record: CheckRecord) {
+  if (!record.matchText) return 0;
+  const other = new Set(normalizeText(record.matchText).split(" "));
+  return record.tokens.filter((token) => token.length > 1 && other.has(token)).length;
 }
 
 function splitSentences(value: string) {
@@ -827,6 +894,7 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<"all" | RiskStatus>("all");
+  const [issueFilter, setIssueFilter] = useState<"all" | InspectionIssueType>("all");
   const [sortMode, setSortMode] = useState<"risk" | "name" | "subject">("risk");
   const [page, setPage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
@@ -848,6 +916,39 @@ export default function Home() {
       return accumulator;
     }, initial);
   }, [records, threshold]);
+
+  const issueCounts = useMemo(
+    () =>
+      records.reduce(
+        (accumulator, record) => {
+          for (const type of new Set(record.issues.map((issue) => issue.type))) {
+            accumulator[type] += 1;
+          }
+          return accumulator;
+        },
+        { typo: 0, symbol: 0, prohibited: 0, institution: 0, business: 0 } as Record<
+          InspectionIssueType,
+          number
+        >,
+      ),
+    [records],
+  );
+
+  const recordMode: RecordType | "mixed" = records.every(
+    (record) => record.recordType === "creative",
+  )
+    ? "creative"
+    : records.every((record) => record.recordType === "subject")
+      ? "subject"
+      : "mixed";
+  const categoryLabel =
+    recordMode === "creative" ? "활동 영역" : recordMode === "subject" ? "과목" : "과목 / 활동 영역";
+  const contentLabel =
+    recordMode === "creative"
+      ? "창의적체험활동 특기사항"
+      : recordMode === "subject"
+        ? "세부능력 및 특기사항"
+        : "학생부 특기사항";
 
   const subjectSummaries = useMemo<SubjectSummary[]>(() => {
     const map = new Map<string, SubjectSummary>();
@@ -874,6 +975,9 @@ export default function Home() {
     const filtered = records.filter((record) => {
       const status = riskStatus(record, threshold);
       if (riskFilter !== "all" && status !== riskFilter) return false;
+      if (issueFilter !== "all" && !record.issues.some((issue) => issue.type === issueFilter)) {
+        return false;
+      }
       if (!term) return true;
       return normalizeText(
         `${record.name} ${record.className} ${record.subject} ${record.text} ${record.matchName}`,
@@ -885,7 +989,7 @@ export default function Home() {
       if (sortMode === "subject") return a.subject.localeCompare(b.subject, "ko");
       return b.similarity - a.similarity || a.name.localeCompare(b.name, "ko");
     });
-  }, [records, riskFilter, search, sortMode, threshold]);
+  }, [issueFilter, records, riskFilter, search, sortMode, threshold]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const visibleRecords = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -905,6 +1009,11 @@ export default function Home() {
     setPage(1);
   }
 
+  function changeIssueFilter(value: "all" | InspectionIssueType) {
+    setIssueFilter(value);
+    setPage(1);
+  }
+
   function changeSortMode(value: "risk" | "name" | "subject") {
     setSortMode(value);
     setPage(1);
@@ -913,7 +1022,7 @@ export default function Home() {
   async function finishAnalysis(baseRecords: CheckRecord[], files: string[]) {
     if (!baseRecords.length) {
       throw new Error(
-        "세부능력 및 특기사항 데이터를 찾지 못했습니다. 나이스에서 내려받은 파일의 Sheet1 구조를 확인해 주세요.",
+        "세부능력 및 특기사항 또는 창의적체험활동 특기사항 데이터를 찾지 못했습니다. 나이스에서 내려받은 파일의 첫 번째 시트 구조를 확인해 주세요.",
       );
     }
 
@@ -972,7 +1081,9 @@ export default function Home() {
           raw: false,
           defval: "",
         }) as unknown[][];
-        if (isNeisExport(rows)) {
+        if (isCreativeActivityExport(rows)) {
+          parsedRecords.push(...makeCreativeCheckRecords(rows, file.name));
+        } else if (isNeisExport(rows)) {
           parsedRecords.push(...parseNeisRows(rows, file.name));
         } else {
           sourceRows.push(...preprocessRows(rows, file.name));
@@ -985,7 +1096,7 @@ export default function Home() {
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
 
-      setProgress({ stage: "cleaning", value: 68, label: "학급·과목 정보를 정리하고 있습니다" });
+      setProgress({ stage: "cleaning", value: 68, label: "학급·과목·활동 영역을 정리하고 있습니다" });
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const baseRecords = mergeCheckRecords([
         ...parsedRecords,
@@ -1019,6 +1130,7 @@ export default function Home() {
     setError("");
     setSearch("");
     setRiskFilter("all");
+    setIssueFilter("all");
     setSelectedRecord(null);
     setPage(1);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1027,7 +1139,7 @@ export default function Home() {
   function exportWorkbook() {
     const workbook = XLSX.utils.book_new();
     const cleanedRows = [
-      ["학년 반", "학년", "과목", "이름", HEADER_TEXT, "원본 파일", "원본 행"],
+      ["학년 반", "학년", categoryLabel, "이름", contentLabel, "원본 파일", "원본 행"],
       ...records.map((record) => [
         record.className,
         record.grade,
@@ -1039,7 +1151,17 @@ export default function Home() {
       ]),
     ];
     const checkRows = [
-      ["이름", "내용", "최대 일치율", "일치하는 문장(가장 유사한 행 기준)", "일치 이름", "점검 결과"],
+      [
+        "이름",
+        contentLabel,
+        "최대 일치율",
+        "일치하는 문장(가장 유사한 행 기준)",
+        "일치 이름",
+        "점검 결과",
+        "기재요령 점검",
+        "발견 표현",
+        "근거",
+      ],
       ...records.map((record) => [
         record.name,
         record.text,
@@ -1047,13 +1169,16 @@ export default function Home() {
         record.matchText,
         record.matchName,
         riskLabel(riskStatus(record, threshold)),
+        [...new Set(record.issues.map((issue) => issue.label))].join(", "),
+        record.issues.map((issue) => issue.match).join(", "),
+        [...new Set(record.issues.map((issue) => issue.reference))].join(", "),
       ]),
     ];
     const grades = [...new Set(records.map((record) => record.grade))].sort((a, b) =>
       a.localeCompare(b, "ko"),
     );
     const summaryRows = [
-      ["과목", ...grades, "합계", "완전 일치", "높은 유사도", "확인 권장"],
+      [categoryLabel, ...grades, "합계", "완전 일치", "높은 유사도", "확인 필요"],
       ...subjectSummaries.map((summary) => [
         summary.subject,
         ...grades.map((grade) => summary.grades[grade] ?? 0),
@@ -1083,6 +1208,9 @@ export default function Home() {
       { wch: 75 },
       { wch: 12 },
       { wch: 14 },
+      { wch: 24 },
+      { wch: 40 },
+      { wch: 28 },
     ];
     summarySheet["!cols"] = Array.from({ length: summaryRows[0].length }, (_, index) => ({
       wch: index === 0 ? 20 : 13,
@@ -1093,11 +1221,11 @@ export default function Home() {
       if (cell) cell.z = "0%";
     }
 
-    XLSX.utils.book_append_sheet(workbook, cleanedSheet, "과세특 정리");
-    XLSX.utils.book_append_sheet(workbook, checkSheet, "생기부 점검");
+    XLSX.utils.book_append_sheet(workbook, cleanedSheet, "특기사항 정리");
+    XLSX.utils.book_append_sheet(workbook, checkSheet, "종합점검");
     XLSX.utils.book_append_sheet(workbook, summarySheet, "분석자료");
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    XLSX.writeFile(workbook, `과세특_점검결과_${date}.xlsx`, { compression: true });
+    XLSX.writeFile(workbook, `학교생활기록부_종합점검결과_${date}.xlsx`, { compression: true });
   }
 
   function exportHtmlReport() {
@@ -1110,8 +1238,14 @@ export default function Home() {
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
     const orderedRecords = [...filteredRecords];
     const currentRiskLabel = riskFilter === "all" ? "전체 위험도" : riskLabel(riskFilter);
+    const currentIssueLabel =
+      issueFilter === "all" ? "전체 점검항목" : INSPECTION_LABELS[issueFilter];
     const currentSortLabel =
-      sortMode === "name" ? "이름 순" : sortMode === "subject" ? "과목 순" : "유사도 높은 순";
+      sortMode === "name"
+        ? "이름 순"
+        : sortMode === "subject"
+          ? `${categoryLabel} 순`
+          : "유사도 높은 순";
     const checkedCount = counts.exact + counts.high + counts.review;
     const reportRows = orderedRecords
       .map((record, index) => {
@@ -1127,55 +1261,88 @@ export default function Home() {
                 : ""
             }</td>
             <td><p class="record-preview">${escapeHtml(record.text)}</p></td>
+            <td><div class="issue-pills">${
+              record.issues.length
+                ? record.issues
+                    .slice(0, 3)
+                    .map(
+                      (issue) =>
+                        `<span class="${issue.type}">${escapeHtml(issue.label)} · ${escapeHtml(issue.match)}</span>`,
+                    )
+                    .join("") +
+                  (record.issues.length > 3
+                    ? `<small>외 ${record.issues.length - 3}건</small>`
+                    : "")
+                : "<small>발견 없음</small>"
+            }</div></td>
             <td>${
-              record.matchText
-                ? `<a class="compare-button" href="#comparison-${index + 1}">비교 <b>›</b></a>`
-                : '<span class="compare-button disabled">비교</span>'
+              record.matchText || record.issues.length
+                ? `<a class="compare-button" href="#comparison-${index + 1}">상세 <b>›</b></a>`
+                : '<span class="compare-button disabled">상세</span>'
             }</td>
           </tr>`;
       })
       .join("");
     const comparisonDialogs = orderedRecords
       .map((record, index) => {
-        if (!record.matchText) return "";
+        if (!record.matchText && !record.issues.length) return "";
         const status = riskStatus(record, threshold);
         const keywords = sharedKeywords(record);
+        const issueItems = record.issues
+          .map(
+            (issue) => `
+              <li class="${issue.type}">
+                <div><strong>${escapeHtml(issue.label)}</strong><mark>${escapeHtml(issue.match)}</mark></div>
+                <p>${escapeHtml(issue.guidance)}</p>
+                <small>${escapeHtml(issue.reference)}</small>
+              </li>`,
+          )
+          .join("");
         return `
-          <section class="compare-dialog" id="comparison-${index + 1}" aria-label="유사 문장 비교">
-            <a class="dialog-backdrop" href="#results" aria-label="비교 창 닫기"></a>
+          <section class="compare-dialog" id="comparison-${index + 1}" aria-label="기록 종합점검">
+            <a class="dialog-backdrop" href="#results" aria-label="상세 창 닫기"></a>
             <article class="dialog-sheet">
               <header class="dialog-header">
                 <div>
                   <span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span>
-                  <h2>유사 문장 나란히 보기</h2>
+                  <h2>기록 종합점검</h2>
                 </div>
-                <a class="dialog-close" href="#results" aria-label="비교 창 닫기">×</a>
+                <a class="dialog-close" href="#results" aria-label="상세 창 닫기">×</a>
               </header>
-              <div class="similarity-callout">
-                <div><span>자카드 유사도</span><strong>${formatPercent(record.similarity)}</strong></div>
-                <p>공통 단어 ${keywords.length}개를 기준으로 가장 가까운 기록을 찾았습니다.</p>
-              </div>
-              <div class="highlight-guide">
-                <span><i class="exact"></i>완전 일치 문장·공통 부분</span>
-                <span><i class="similar"></i>문장 내 다른 부분</span>
-              </div>
-              <div class="comparison-grid">
-                <section>
-                  <h3>A · ${escapeHtml(record.name)}</h3>
-                  <small>${escapeHtml(record.className)} · ${escapeHtml(record.subject)}</small>
-                  <p>${highlightedReportHtml(record.text, record.matchText)}</p>
-                </section>
-                <section>
-                  <h3>B · ${escapeHtml(record.matchName || "비교 대상")}</h3>
-                  <small>가장 유사한 다른 기록</small>
-                  <p>${highlightedReportHtml(record.matchText, record.text)}</p>
-                </section>
-              </div>
               ${
-                keywords.length
-                  ? `<div class="keywords"><span>두 문장에 함께 나온 주요 단어</span>${keywords
-                      .map((keyword) => `<i>${escapeHtml(keyword)}</i>`)
-                      .join("")}</div>`
+                issueItems
+                  ? `<section class="rule-findings"><h3>2026 기재요령·문장 점검</h3><ul>${issueItems}</ul><p>자동 탐지는 보조 기능입니다. 기관명·상호명과 맞춤법은 문맥 및 허용 예외를 직접 확인해 주세요.</p></section>`
+                  : ""
+              }
+              ${
+                record.matchText
+                  ? `<div class="similarity-callout">
+                      <div><span>자카드 유사도</span><strong>${formatPercent(record.similarity)}</strong></div>
+                      <p>전체 고유 단어 중 ${sharedKeywordCount(record)}개가 공통으로 확인되었습니다.</p>
+                    </div>
+                    <div class="highlight-guide">
+                      <span><i class="exact"></i>완전 일치 문장·공통 부분</span>
+                      <span><i class="similar"></i>문장 내 다른 부분</span>
+                    </div>
+                    <div class="comparison-grid">
+                      <section>
+                        <h3>A · ${escapeHtml(record.name)}</h3>
+                        <small>${escapeHtml(record.className)} · ${escapeHtml(record.subject)}</small>
+                        <p>${highlightedReportHtml(record.text, record.matchText)}</p>
+                      </section>
+                      <section>
+                        <h3>B · ${escapeHtml(record.matchName || "비교 대상")}</h3>
+                        <small>가장 유사한 다른 기록</small>
+                        <p>${highlightedReportHtml(record.matchText, record.text)}</p>
+                      </section>
+                    </div>
+                    ${
+                      keywords.length
+                        ? `<div class="keywords"><span>두 문장에 함께 나온 주요 단어</span>${keywords
+                            .map((keyword) => `<i>${escapeHtml(keyword)}</i>`)
+                            .join("")}<small>※ 아래 기록을 대조하여 공통 단어 목록은 최대 18개까지 표시합니다. 유사도 계산은 두 기록의 전체 고유 단어를 사용합니다.</small></div>`
+                        : ""
+                    }`
                   : ""
               }
               <footer>원본: ${escapeHtml(record.sourceFile)} · ${record.sourceRow}행</footer>
@@ -1197,12 +1364,20 @@ export default function Home() {
           </div>`,
       )
       .join("");
+    const issueSummaryItems = (
+      ["typo", "symbol", "prohibited", "institution", "business"] as InspectionIssueType[]
+    )
+      .map(
+        (type) =>
+          `<div class="audit-item ${type}"><span>${escapeHtml(INSPECTION_LABELS[type])}</span><strong>${issueCounts[type].toLocaleString("ko-KR")}</strong><small>건의 기록</small></div>`,
+      )
+      .join("");
     const html = `<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>과세특 점검 결과 · ${escapeHtml(generatedAt)}</title>
+  <title>학교생활기록부 종합점검 결과 · ${escapeHtml(generatedAt)}</title>
   <style>
     :root { color-scheme:light; --navy:#15365d; --navy-deep:#102d50; --teal:#12998b; --teal-dark:#0f766e; --ink:#172b45; --ink-soft:#607086; --line:#dce4ea; --danger:#d85050; --danger-soft:#fff0ee; --warning:#d1841d; --warning-soft:#fff6e7; --review:#7a60b3; --review-soft:#f4efff; --mint:#e6f7f2; }
     * { box-sizing:border-box; }
@@ -1260,6 +1435,16 @@ export default function Home() {
     .subject-row > i { height:5px; overflow:hidden; border-radius:99px; background:#edf1f3; }
     .subject-row > i b { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#e19632,#d9604c); }
     .subject-row > strong { color:#66768b; font-size:10px; text-align:right; }
+    .audit-panel { margin-top:16px; padding:24px; border:1px solid var(--line); border-radius:19px; background:white; box-shadow:0 8px 30px rgba(21,54,93,.045); }
+    .audit-panel header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:16px; }
+    .audit-panel h2 { margin:5px 0 0; font-size:18px; }
+    .audit-panel header p { margin:0; color:#7b8999; font-size:9px; }
+    .audit-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:9px; }
+    .audit-item { padding:14px; border:1px solid #e4eaed; border-radius:12px; background:#fbfcfc; }
+    .audit-item span { display:block; color:#65758a; font-size:9px; font-weight:800; }
+    .audit-item strong { display:inline-block; margin-top:5px; color:var(--navy); font-size:21px; }
+    .audit-item small { margin-left:4px; color:#94a0ad; font-size:8px; }
+    .audit-item.prohibited { border-color:#f1c7c3; background:#fff8f7; }
     .results-panel { margin-top:16px; overflow:hidden; }
     .results-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:23px 25px; border-bottom:1px solid var(--line); }
     .results-heading h2 em { margin-left:5px; color:var(--teal-dark); font-size:13px; font-style:normal; }
@@ -1267,9 +1452,9 @@ export default function Home() {
     .snapshot-search,.snapshot-select { height:38px; padding:0 12px; border:1px solid var(--line); border-radius:10px; background:#fbfcfc; color:#718095; font-size:10px; line-height:36px; }
     .snapshot-search { width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .table-wrap { overflow-x:auto; }
-    table { width:100%; min-width:1000px; border-collapse:collapse; table-layout:fixed; }
+    table { width:100%; min-width:1180px; border-collapse:collapse; table-layout:fixed; }
     th { padding:12px 14px; border-bottom:1px solid var(--line); background:#f7f9f8; color:#728095; font-size:9px; font-weight:800; text-align:left; }
-    th:nth-child(1){width:120px} th:nth-child(2){width:120px} th:nth-child(3){width:100px} th:nth-child(4){width:115px} th:nth-child(6){width:75px}
+    th:nth-child(1){width:110px} th:nth-child(2){width:115px} th:nth-child(3){width:95px} th:nth-child(4){width:105px} th:nth-child(6){width:185px} th:nth-child(7){width:70px}
     td { padding:15px 14px; border-bottom:1px solid #edf1f3; vertical-align:middle; }
     tbody tr:hover { background:#fbfdfc; }
     .status-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; font-size:9px; font-weight:800; white-space:nowrap; }
@@ -1283,6 +1468,11 @@ export default function Home() {
     .muted { display:block; margin-top:4px; overflow:hidden; color:#8b98a7; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
     .subject-chip { display:inline-block; max-width:100%; overflow:hidden; padding:5px 8px; border-radius:7px; background:#eef4fa; color:#415b77; font-size:9px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
     .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#40556d; font-size:10px; line-height:1.75; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+    .issue-pills { display:flex; align-items:flex-start; flex-direction:column; gap:4px; }
+    .issue-pills span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:6px; background:#f3f0fa; color:#6f55ab; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+    .issue-pills span.prohibited { background:#fff0ee; color:#b33d3d; }
+    .issue-pills span.institution,.issue-pills span.business { background:#fff6e7; color:#a86416; }
+    .issue-pills small { color:#97a3af; font-size:8px; }
     .compare-button { display:inline-flex; align-items:center; gap:3px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--navy); font-size:9px; font-weight:800; text-decoration:none; }
     .compare-button b { font-size:14px; } .compare-button.disabled { color:#a8b1bc; }
     .table-footer { padding:14px 24px; color:#7d8a99; font-size:10px; text-align:right; }
@@ -1298,6 +1488,16 @@ export default function Home() {
     .similarity-callout { display:flex; align-items:center; justify-content:space-between; gap:20px; margin:18px 25px 0; padding:18px 20px; border-radius:14px; background:var(--navy-deep); color:white; }
     .similarity-callout span { color:#adc0d4; font-size:9px; } .similarity-callout strong { display:block; color:#62d4c5; font-size:28px; }
     .similarity-callout p { margin:0; color:#c8d5e3; font-size:10px; }
+    .rule-findings { margin:18px 25px 0; padding:18px; border:1px solid #eadfe7; border-radius:14px; background:#fcfafc; }
+    .rule-findings h3 { margin:0 0 12px; font-size:13px; }
+    .rule-findings ul { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
+    .rule-findings li { padding:11px 12px; border-radius:10px; background:white; }
+    .rule-findings li.prohibited { border-left:3px solid var(--danger); }
+    .rule-findings li > div { display:flex; align-items:center; gap:8px; }
+    .rule-findings li strong { font-size:9px; }
+    .rule-findings li mark { padding:2px 5px; background:#fff0ee; color:#b33d3d; font-size:9px; }
+    .rule-findings li p { margin:6px 0 2px; color:#56687d; font-size:9px; }
+    .rule-findings li small,.rule-findings > p { color:#8b98a7; font-size:8px; }
     .highlight-guide { display:flex; gap:18px; padding:15px 25px 0; color:#66768b; font-size:9px; font-weight:700; }
     .highlight-guide span { display:flex; align-items:center; gap:6px; } .highlight-guide i { width:13px; height:13px; border-radius:4px; }
     .highlight-guide i.exact { background:#ffe0dc; } .highlight-guide i.similar { position:relative; background:white; box-shadow:inset 0 0 0 1px #efb7b2; }
@@ -1313,15 +1513,16 @@ export default function Home() {
     .keywords { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:0 25px 18px; }
     .keywords span { margin-right:4px; color:#65758a; font-size:9px; font-weight:700; }
     .keywords i { padding:4px 7px; border-radius:7px; background:#e6f7f2; color:var(--teal); font-size:8px; font-style:normal; font-weight:700; }
+    .keywords small { flex-basis:100%; margin-top:6px; color:#8b98a7; font-size:8px; }
     .dialog-sheet > footer { padding:12px 25px; border-top:1px solid var(--line); background:#f8faf9; color:#8b98a7; font-size:9px; }
-    @media (max-width:900px) { .summary-grid{grid-template-columns:repeat(2,1fr)} .insight-grid,.comparison-grid{grid-template-columns:1fr} .report-hero,.results-heading{align-items:flex-start;flex-direction:column} .snapshot-controls{width:100%;flex-wrap:wrap} .snapshot-search{flex:1} }
+    @media (max-width:900px) { .summary-grid{grid-template-columns:repeat(2,1fr)} .insight-grid,.comparison-grid{grid-template-columns:1fr} .audit-grid{grid-template-columns:repeat(2,1fr)} .report-hero,.results-heading{align-items:flex-start;flex-direction:column} .snapshot-controls{width:100%;flex-wrap:wrap} .snapshot-search{flex:1} }
     @media (max-width:560px) { .report-main{width:min(100% - 24px,1180px)} .summary-grid{grid-template-columns:1fr} .distribution-legend{grid-template-columns:repeat(2,1fr)} .topbar>span{display:none} .site-footer{gap:12px;flex-direction:column} }
     @media print { body{background:white} .topbar,.saved-chip,.compare-dialog{display:none!important} .report-main{width:100%;padding:0} .panel,.results-panel,.summary-card{box-shadow:none} .table-wrap{overflow:visible} table{min-width:0} .compare-button{display:none} }
   </style>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">✓</span><strong>과세특 점검</strong><small>감사 점검 도우미</small></div>
+    <div class="brand"><span class="brand-mark">✓</span><strong>학교생활기록부 종합점검기</strong><small>2026 기재요령 기반 보조 점검</small></div>
     <span>저장된 결과 파일 · 학생 기록을 안전하게 보관해 주세요</span>
   </header>
   <main class="report-main">
@@ -1329,7 +1530,7 @@ export default function Home() {
       <div>
         <div class="eyebrow">점검 완료 · ${escapeHtml(generatedAt)}</div>
         <h1>확인이 필요한 기록을 모았습니다.</h1>
-        <p>${sourceFiles.length.toLocaleString("ko-KR")}개 파일에서 ${records.length.toLocaleString("ko-KR")}건을 정리했습니다. 유사도는 보조 지표이므로 원문을 함께 확인해 주세요.</p>
+        <p>${sourceFiles.length.toLocaleString("ko-KR")}개 파일에서 ${records.length.toLocaleString("ko-KR")}건의 ${escapeHtml(contentLabel)}을 정리했습니다. 유사도와 기재요령 점검 결과는 보조 지표이므로 원문을 함께 확인해 주세요.</p>
       </div>
       <div class="saved-chip">결과 화면 HTML 저장본</div>
     </section>
@@ -1337,7 +1538,7 @@ export default function Home() {
       <article class="summary-card primary"><div class="summary-icon">전체</div><span>전체 기록</span><strong>${records.length.toLocaleString("ko-KR")}</strong><small>${sourceFiles.length.toLocaleString("ko-KR")}개 원본 파일</small></article>
       <article class="summary-card danger"><div class="summary-icon">!</div><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong><small>정규화 후 100% 같은 문장</small></article>
       <article class="summary-card warning"><div class="summary-icon">≈</div><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong><small>${Math.round(threshold * 100)}% 이상 유사한 문장</small></article>
-      <article class="summary-card calm"><div class="summary-icon">✓</div><span>특이 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong><small>설정 기준 미만</small></article>
+      <article class="summary-card calm"><div class="summary-icon">✓</div><span>이상 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong><small>설정 기준 미만</small></article>
     </section>
     <section class="insight-grid">
       <article class="panel">
@@ -1351,8 +1552,8 @@ export default function Home() {
         <div class="distribution-legend">
           <div class="legend-item"><i class="legend-dot exact"></i><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong></div>
           <div class="legend-item"><i class="legend-dot high"></i><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong></div>
-          <div class="legend-item"><i class="legend-dot review"></i><span>확인 권장</span><strong>${counts.review.toLocaleString("ko-KR")}</strong></div>
-          <div class="legend-item"><i class="legend-dot normal"></i><span>특이 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong></div>
+          <div class="legend-item"><i class="legend-dot review"></i><span>확인 필요</span><strong>${counts.review.toLocaleString("ko-KR")}</strong></div>
+          <div class="legend-item"><i class="legend-dot normal"></i><span>이상 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong></div>
         </div>
         <div class="threshold">
           <div class="threshold-label"><span>높은 유사도 기준</span><strong>${Math.round(threshold * 100)}%</strong></div>
@@ -1360,30 +1561,35 @@ export default function Home() {
         </div>
       </article>
       <article class="panel">
-        <div class="card-title-row"><div><span class="section-kicker">과목별 현황</span><h2>우선 확인할 과목</h2></div><span>▥</span></div>
-        <div class="subject-list">${subjectItems || '<p class="muted">과목 정보가 없습니다.</p>'}</div>
+        <div class="card-title-row"><div><span class="section-kicker">${escapeHtml(categoryLabel)}별 현황</span><h2>우선 확인할 ${escapeHtml(categoryLabel)}</h2></div><span>▥</span></div>
+        <div class="subject-list">${subjectItems || `<p class="muted">${escapeHtml(categoryLabel)} 정보가 없습니다.</p>`}</div>
       </article>
+    </section>
+    <section class="audit-panel">
+      <header><div><span class="section-kicker">2026 학교생활기록부 기재요령</span><h2>기재요령·문장 점검</h2></div><p>자동 탐지는 보조 기능이며 허용 예외와 문맥은 최종 확인이 필요합니다.</p></header>
+      <div class="audit-grid">${issueSummaryItems}</div>
     </section>
     <section class="results-panel" id="results">
       <div class="results-heading">
         <div><span class="section-kicker">상세 점검 결과</span><h2>기록별 비교 <em>${orderedRecords.length.toLocaleString("ko-KR")}</em></h2></div>
         <div class="snapshot-controls">
-          <div class="snapshot-search">${search ? `검색: ${escapeHtml(search)}` : "이름, 학급, 과목, 내용 검색"}</div>
+          <div class="snapshot-search">${search ? `검색: ${escapeHtml(search)}` : `이름, 학급, ${escapeHtml(categoryLabel)}, 내용 검색`}</div>
           <div class="snapshot-select">${escapeHtml(currentRiskLabel)}⌄</div>
+          <div class="snapshot-select">${escapeHtml(currentIssueLabel)}⌄</div>
           <div class="snapshot-select">${escapeHtml(currentSortLabel)}⌄</div>
         </div>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>점검 결과</th><th>학생 / 학급</th><th>과목</th><th>최대 유사도</th><th>세부능력 및 특기사항</th><th>비교</th></tr></thead>
-          <tbody>${reportRows || '<tr><td colspan="6">조건에 맞는 기록이 없습니다.</td></tr>'}</tbody>
+          <thead><tr><th>점검 결과</th><th>학생 / 학급</th><th>${escapeHtml(categoryLabel)}</th><th>최대 유사도</th><th>${escapeHtml(contentLabel)}</th><th>기재요령 점검</th><th>상세</th></tr></thead>
+          <tbody>${reportRows || '<tr><td colspan="7">조건에 맞는 기록이 없습니다.</td></tr>'}</tbody>
         </table>
       </div>
       <div class="table-footer">현재 조건에 맞는 전체 ${orderedRecords.length.toLocaleString("ko-KR")}건을 저장했습니다.</div>
     </section>
-    <div class="report-notice">이 결과는 문장 내 고유 단어의 교집합과 합집합을 비교한 자카드 유사도입니다. 단어 순서와 교육적 맥락은 별도로 판단하지 않으므로, 표시된 두 문장을 직접 대조해 최종 확인하세요.</div>
+    <div class="report-notice">자카드 유사도는 전체 고유 단어의 교집합과 합집합을 비교합니다. 기재요령 점검은 2026 학교생활기록부 기재요령 p.18-19, p.30, p.61, p.82의 주요 기준을 바탕으로 한 보조 탐지이므로 원문과 허용 예외를 직접 확인하세요.</div>
   </main>
-  <footer class="site-footer"><span>과세특 점검 도움자료 웹 버전</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
+  <footer class="site-footer"><span>학교생활기록부 종합점검기</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
   ${comparisonDialogs}
 </body>
 </html>`;
@@ -1391,7 +1597,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `과세특_점검결과화면_${date}.html`;
+    anchor.download = `학교생활기록부_종합점검결과화면_${date}.html`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -1404,13 +1610,18 @@ export default function Home() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" type="button" onClick={reset} aria-label="과세특 점검 홈">
+        <button
+          className="brand"
+          type="button"
+          onClick={reset}
+          aria-label="학교생활기록부 종합점검 홈"
+        >
           <span className="brand-mark">
             <FileCheck2 size={21} strokeWidth={2.2} />
           </span>
           <span>
-            <strong>과세특 점검</strong>
-            <small>감사 점검 도우미</small>
+            <strong>학생부 종합점검</strong>
+            <small>2026 기재요령 기반</small>
           </span>
         </button>
         <div className="privacy-badge">
@@ -1425,26 +1636,26 @@ export default function Home() {
             <div className="hero-copy">
               <div className="eyebrow">
                 <span />
-                학교생활기록부 · 과목별 세부능력 및 특기사항
+                교과 세특 · 창의적체험활동 특기사항
               </div>
               <h1>
-                과세특, 올리면
+                학생부 기록, 올리면
                 <br />
-                <em>바로 점검합니다.</em>
+                <em>종합 점검합니다.</em>
               </h1>
               <p>
-                반별로 내려받은 엑셀을 한 번에 합치고, 중복 문장과 높은 유사도를 찾아
-                확인이 필요한 기록부터 보여드립니다.
+                나이스 엑셀을 한 번에 합치고 유사도, 오탈자, 특수기호, 기재금지어,
+                기관명과 상호명을 함께 확인합니다.
               </p>
               <div className="hero-points" aria-label="주요 기능">
                 <span>
                   <Check size={16} /> 여러 파일 자동 병합
                 </span>
                 <span>
-                  <Check size={16} /> 자카드 유사도 분석
+                  <Check size={16} /> 교과 세특·창체 자동 인식
                 </span>
                 <span>
-                  <Check size={16} /> 점검 결과 엑셀·HTML 저장
+                  <Check size={16} /> 유사도·기재요령 통합 점검
                 </span>
               </div>
               <div className="privacy-note">
@@ -1560,7 +1771,7 @@ export default function Home() {
 
           <section className="workflow-section">
             <div className="section-heading">
-              <span>엑셀 매크로의 5단계를 한 번에</span>
+              <span>학교생활기록부 종합점검 과정을 한 번에</span>
               <h2>클릭을 반복할 필요 없이 자동으로 정리합니다.</h2>
             </div>
             <div className="workflow-grid">
@@ -1574,20 +1785,20 @@ export default function Home() {
                 {
                   number: "02",
                   icon: <FileSpreadsheet size={21} />,
-                  title: "학급·과목 정보 보정",
+                  title: "학급·과목·영역 보정",
                   text: "빈 셀과 분리된 값을 앞뒤 문맥에 맞게 채웁니다.",
                 },
                 {
                   number: "03",
                   icon: <RefreshCcw size={21} />,
-                  title: "세특 문장 병합",
-                  text: "같은 학생·과목에 나뉜 내용을 한 문장으로 정리합니다.",
+                  title: "특기사항 문장 병합",
+                  text: "같은 학생·과목 또는 활동 영역에 나뉜 내용을 한 문장으로 정리합니다.",
                 },
                 {
                   number: "04",
                   icon: <BarChart3 size={21} />,
-                  title: "중복·유사도 점검",
-                  text: "완전 중복과 가장 유사한 문장을 과목별로 보여드립니다.",
+                  title: "유사도·기재요령 점검",
+                  text: "중복 문장과 기재금지어, 특수기호, 기관명·상호명을 함께 확인합니다.",
                 },
               ].map((item) => (
                 <article className="workflow-card" key={item.number}>
@@ -1615,7 +1826,8 @@ export default function Home() {
               <h1>확인이 필요한 기록을 모았습니다.</h1>
               <p>
                 {sourceFiles.length}개 파일에서 {records.length.toLocaleString("ko-KR")}건을
-                정리했습니다. 유사도는 보조 지표이므로 원문을 함께 확인해 주세요.
+                정리했습니다. 유사도와 2026 기재요령 보조 점검 결과를 원문과 함께 확인해
+                주세요.
               </p>
             </div>
             <div className="export-actions">
@@ -1663,7 +1875,7 @@ export default function Home() {
               <div className="summary-icon">
                 <CheckCircle2 size={21} />
               </div>
-              <span>특이 없음</span>
+              <span>이상 없음</span>
               <strong>{counts.normal.toLocaleString("ko-KR")}</strong>
               <small>설정 기준 미만</small>
             </article>
@@ -1723,8 +1935,8 @@ export default function Home() {
             <article className="subject-panel">
               <div className="card-title-row">
                 <div>
-                  <span>과목별 현황</span>
-                  <h2>우선 확인할 과목</h2>
+                  <span>{categoryLabel}별 현황</span>
+                  <h2>우선 확인할 {categoryLabel}</h2>
                 </div>
                 <BarChart3 size={21} />
               </div>
@@ -1752,9 +1964,38 @@ export default function Home() {
                     </button>
                   );
                 })}
-                {!subjectSummaries.length && <p className="empty-copy">과목 정보가 없습니다.</p>}
+                {!subjectSummaries.length && (
+                  <p className="empty-copy">{categoryLabel} 정보가 없습니다.</p>
+                )}
               </div>
             </article>
+          </section>
+
+          <section className="audit-panel">
+            <div className="audit-heading">
+              <div>
+                <span>2026 학교생활기록부 기재요령 기반</span>
+                <h2>기재요령 보조 점검</h2>
+              </div>
+              <p>항목을 누르면 해당 표현이 발견된 기록만 모아볼 수 있습니다.</p>
+            </div>
+            <div className="audit-grid">
+              {INSPECTION_TYPES.map((type) => (
+                <button
+                  type="button"
+                  key={type}
+                  className={issueFilter === type ? "active" : ""}
+                  onClick={() => changeIssueFilter(issueFilter === type ? "all" : type)}
+                >
+                  <span>{INSPECTION_LABELS[type]}</span>
+                  <strong>{issueCounts[type].toLocaleString("ko-KR")}건</strong>
+                </button>
+              ))}
+            </div>
+            <p className="audit-disclaimer">
+              자동 탐지는 확인이 필요한 후보를 찾는 기능입니다. 문맥, 허용 예외, 고유명사
+              여부는 기재요령 원문과 대조하여 최종 판단해 주세요.
+            </p>
           </section>
 
           <section className="results-panel" id="results">
@@ -1772,7 +2013,7 @@ export default function Home() {
                     type="search"
                     value={search}
                     onChange={(event) => changeSearch(event.target.value)}
-                    placeholder="이름, 학급, 과목, 내용 검색"
+                    placeholder={`이름, 학급, ${categoryLabel}, 내용 검색`}
                     aria-label="점검 결과 검색"
                   />
                   {search && (
@@ -1791,8 +2032,22 @@ export default function Home() {
                   <option value="all">전체 위험도</option>
                   <option value="exact">완전 일치</option>
                   <option value="high">높은 유사도</option>
-                  <option value="review">확인 권장</option>
-                  <option value="normal">특이 없음</option>
+                  <option value="review">확인 필요</option>
+                  <option value="normal">이상 없음</option>
+                </select>
+                <select
+                  value={issueFilter}
+                  onChange={(event) =>
+                    changeIssueFilter(event.target.value as "all" | InspectionIssueType)
+                  }
+                  aria-label="기재요령 점검항목 필터"
+                >
+                  <option value="all">전체 점검항목</option>
+                  {INSPECTION_TYPES.map((type) => (
+                    <option value={type} key={type}>
+                      {INSPECTION_LABELS[type]}
+                    </option>
+                  ))}
                 </select>
                 <select
                   value={sortMode}
@@ -1803,7 +2058,7 @@ export default function Home() {
                 >
                   <option value="risk">유사도 높은 순</option>
                   <option value="name">이름 순</option>
-                  <option value="subject">과목 순</option>
+                  <option value="subject">{categoryLabel} 순</option>
                 </select>
               </div>
             </div>
@@ -1814,11 +2069,12 @@ export default function Home() {
                   <tr>
                     <th>점검 결과</th>
                     <th>학생 / 학급</th>
-                    <th>과목</th>
+                    <th>{categoryLabel}</th>
                     <th>최대 유사도</th>
-                    <th>세부능력 및 특기사항</th>
+                    <th>{contentLabel}</th>
+                    <th>기재요령 점검</th>
                     <th>
-                      <span className="visually-hidden">비교</span>
+                      <span className="visually-hidden">상세</span>
                     </th>
                   </tr>
                 </thead>
@@ -1852,13 +2108,30 @@ export default function Home() {
                           <p className="record-preview">{record.text}</p>
                         </td>
                         <td>
+                          <div className="record-issues">
+                            {record.issues.slice(0, 3).map((issue, index) => (
+                              <span
+                                className={`inspection-chip ${issue.severity}`}
+                                key={`${issue.type}-${issue.index}-${index}`}
+                                title={`${issue.match}: ${issue.guidance}`}
+                              >
+                                {issue.label}
+                              </span>
+                            ))}
+                            {record.issues.length > 3 && (
+                              <small>+{record.issues.length - 3}</small>
+                            )}
+                            {!record.issues.length && <span className="muted-inline">없음</span>}
+                          </div>
+                        </td>
+                        <td>
                           <button
                             className="compare-button"
                             type="button"
                             onClick={() => setSelectedRecord(record)}
-                            disabled={!record.matchText}
+                            disabled={!record.matchText && !record.issues.length}
                           >
-                            비교
+                            상세
                             <ChevronRight size={15} />
                           </button>
                         </td>
@@ -1909,16 +2182,17 @@ export default function Home() {
           <div className="report-notice">
             <Info size={18} />
             <p>
-              이 결과는 문장 내 고유 단어의 교집합과 합집합을 비교한 자카드 유사도입니다.
-              단어 순서와 교육적 맥락은 별도로 판단하지 않으므로, 표시된 두 문장을 직접
-              대조해 최종 확인하세요.
+              자카드 유사도는 두 기록의 전체 고유 단어를 사용합니다. 오탈자·특수기호·
+              기재금지어·기관명·상호명 점검은 2026 학교생활기록부 기재요령의 주요 기준을
+              바탕으로 한 보조 탐지이므로, 표시된 원문과 허용 예외를 직접 대조해 최종
+              확인하세요.
             </p>
           </div>
         </main>
       )}
 
       <footer>
-        <span>과세특 점검 도움자료 웹 버전</span>
+        <span>학교생활기록부 종합점검기</span>
         <span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span>
       </footer>
 
@@ -1960,72 +2234,102 @@ export default function Home() {
                   <i />
                   {riskLabel(riskStatus(selectedRecord, threshold))}
                 </span>
-                <h2 id="compare-title">유사 문장 나란히 보기</h2>
+                <h2 id="compare-title">기록 종합점검</h2>
               </div>
-              <button type="button" onClick={() => setSelectedRecord(null)} aria-label="비교 창 닫기">
+              <button type="button" onClick={() => setSelectedRecord(null)} aria-label="상세 창 닫기">
                 <X size={20} />
               </button>
             </div>
-            <div className="similarity-callout">
-              <div>
-                <span>자카드 유사도</span>
-                <strong>{formatPercent(selectedRecord.similarity)}</strong>
-              </div>
-              <p>
-                공통 단어 {sharedKeywords(selectedRecord).length}개를 기준으로 가장 가까운 기록을
-                찾았습니다.
-              </p>
-            </div>
-            <div className="highlight-legend" aria-label="문장 강조 표시 안내">
-              <span>
-                <i className="exact" />
-                완전 일치 문장·공통 부분
-              </span>
-              <span>
-                <i className="similar" />
-                문장 내 다른 부분
-              </span>
-              <small>붉은 음영은 같은 부분, 붉은 글자는 서로 다른 부분입니다.</small>
-            </div>
-            <div className="comparison-grid">
-              <article>
-                <div className="comparison-label">
-                  <span>A</span>
+            {selectedRecord.issues.length > 0 && (
+              <section className="rule-findings">
+                <div className="rule-findings-heading">
                   <div>
-                    <strong>{selectedRecord.name}</strong>
-                    <small>
-                      {selectedRecord.className} · {selectedRecord.subject}
-                    </small>
+                    <span>기재요령 보조 점검</span>
+                    <h3>확인할 표현 {selectedRecord.issues.length}건</h3>
                   </div>
+                  <small>자동 탐지 결과이므로 문맥과 예외를 확인하세요.</small>
                 </div>
-                <HighlightedComparisonText
-                  text={selectedRecord.text}
-                  comparisonText={selectedRecord.matchText}
-                />
-              </article>
-              <article>
-                <div className="comparison-label">
-                  <span>B</span>
+                <div className="rule-finding-list">
+                  {selectedRecord.issues.map((issue, index) => (
+                    <article key={`${issue.type}-${issue.index}-${index}`}>
+                      <div>
+                        <span className={`inspection-chip ${issue.severity}`}>{issue.label}</span>
+                        <strong>{issue.match}</strong>
+                        <small>{issue.reference}</small>
+                      </div>
+                      <p>{issue.guidance}</p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+            {selectedRecord.matchText && (
+              <>
+                <div className="similarity-callout">
                   <div>
-                    <strong>{selectedRecord.matchName || "비교 대상"}</strong>
-                    <small>가장 유사한 다른 기록</small>
+                    <span>자카드 유사도</span>
+                    <strong>{formatPercent(selectedRecord.similarity)}</strong>
                   </div>
+                  <p>실제 공통 고유 단어 {sharedKeywordCount(selectedRecord)}개</p>
                 </div>
-                <HighlightedComparisonText
-                  text={selectedRecord.matchText}
-                  comparisonText={selectedRecord.text}
-                />
-              </article>
-            </div>
-            <div className="keyword-section">
-              <span>두 문장에 함께 나온 주요 단어</span>
-              <div>
-                {sharedKeywords(selectedRecord).map((keyword) => (
-                  <i key={keyword}>{keyword}</i>
-                ))}
-                {!sharedKeywords(selectedRecord).length && <small>공통 핵심 단어가 없습니다.</small>}
-              </div>
-            </div>
+                <div className="highlight-legend" aria-label="문장 강조 표시 안내">
+                  <span>
+                    <i className="exact" />
+                    완전 일치 문장·공통 부분
+                  </span>
+                  <span>
+                    <i className="similar" />
+                    문장 내 다른 부분
+                  </span>
+                  <small>붉은 음영은 같은 부분, 붉은 글자는 서로 다른 부분입니다.</small>
+                </div>
+                <div className="comparison-grid">
+                  <article>
+                    <div className="comparison-label">
+                      <span>A</span>
+                      <div>
+                        <strong>{selectedRecord.name}</strong>
+                        <small>
+                          {selectedRecord.className} · {selectedRecord.subject}
+                        </small>
+                      </div>
+                    </div>
+                    <HighlightedComparisonText
+                      text={selectedRecord.text}
+                      comparisonText={selectedRecord.matchText}
+                    />
+                  </article>
+                  <article>
+                    <div className="comparison-label">
+                      <span>B</span>
+                      <div>
+                        <strong>{selectedRecord.matchName || "비교 대상"}</strong>
+                        <small>가장 유사한 다른 기록</small>
+                      </div>
+                    </div>
+                    <HighlightedComparisonText
+                      text={selectedRecord.matchText}
+                      comparisonText={selectedRecord.text}
+                    />
+                  </article>
+                </div>
+                <div className="keyword-section">
+                  <span>두 기록의 공통 단어 목록</span>
+                  <div>
+                    {sharedKeywords(selectedRecord).map((keyword) => (
+                      <i key={keyword}>{keyword}</i>
+                    ))}
+                    {!sharedKeywords(selectedRecord).length && (
+                      <small>공통 핵심 단어가 없습니다.</small>
+                    )}
+                  </div>
+                  <p className="keyword-note">
+                    ※ 아래 기록을 대조하여 공통 단어 목록은 최대 18개까지 표시합니다. 유사도
+                    계산은 두 기록의 전체 고유 단어를 사용합니다.
+                  </p>
+                </div>
+              </>
+            )}
             <div className="modal-footer">
               <span>
                 원본: {selectedRecord.sourceFile} · {selectedRecord.sourceRow}행

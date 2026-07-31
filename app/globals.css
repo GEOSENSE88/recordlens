@@ -701,6 +701,7 @@ input[type="range"] {
 
 .risk-panel,
 .subject-panel,
+.audit-panel,
 .results-panel {
   border: 1px solid var(--line);
   border-radius: 19px;
@@ -711,6 +712,77 @@ input[type="range"] {
 .risk-panel,
 .subject-panel {
   padding: 25px;
+}
+
+.audit-panel {
+  margin-top: 16px;
+  padding: 22px 25px;
+}
+
+.audit-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.audit-heading span {
+  color: var(--teal-dark);
+  font-size: 9px;
+}
+
+.audit-heading h2 {
+  margin: 5px 0 0;
+  font-size: 18px;
+  letter-spacing: -0.04em;
+}
+
+.audit-heading p,
+.audit-disclaimer {
+  margin: 0;
+  color: #7e8b9b;
+  font-size: 9px;
+  line-height: 1.65;
+}
+
+.audit-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 9px;
+  margin-top: 17px;
+}
+
+.audit-grid button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #e0e6e9;
+  border-radius: 11px;
+  background: #fafbf9;
+  color: #5f7084;
+  cursor: pointer;
+  font-size: 10px;
+  text-align: left;
+}
+
+.audit-grid button:hover,
+.audit-grid button.active {
+  border-color: #8acbbf;
+  background: #f0faf7;
+  color: var(--teal-dark);
+}
+
+.audit-grid strong {
+  color: var(--navy);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.audit-disclaimer {
+  margin-top: 11px;
 }
 
 .card-title-row {
@@ -978,23 +1050,27 @@ th {
 }
 
 th:nth-child(1) {
-  width: 120px;
+  width: 110px;
 }
 
 th:nth-child(2) {
-  width: 120px;
-}
-
-th:nth-child(3) {
-  width: 100px;
-}
-
-th:nth-child(4) {
   width: 115px;
 }
 
+th:nth-child(3) {
+  width: 95px;
+}
+
+th:nth-child(4) {
+  width: 105px;
+}
+
 th:nth-child(6) {
-  width: 75px;
+  width: 175px;
+}
+
+th:nth-child(7) {
+  width: 70px;
 }
 
 td {
@@ -1123,6 +1199,36 @@ tbody tr:hover {
   line-height: 1.65;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.record-issues {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.inspection-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #fff4df;
+  color: #9b641c;
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.inspection-chip.danger {
+  background: #ffe9e7;
+  color: #b54343;
+}
+
+.record-issues small,
+.muted-inline {
+  color: #8b98a7;
+  font-size: 8px;
 }
 
 .compare-button {
@@ -1395,6 +1501,90 @@ footer {
   font-size: 10px;
 }
 
+.rule-findings {
+  margin: 22px 28px 0;
+  padding: 18px;
+  border: 1px solid #f0d8bd;
+  border-radius: 14px;
+  background: #fffaf3;
+}
+
+.rule-findings-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rule-findings-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-findings-heading span {
+  color: #a66c21;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.rule-findings-heading h3 {
+  margin: 0;
+  color: var(--navy);
+  font-size: 16px;
+}
+
+.rule-findings-heading small {
+  color: #94816c;
+  font-size: 9px;
+}
+
+.rule-finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rule-finding-list article {
+  display: grid;
+  grid-template-columns: 225px 1fr;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid #f0e3d5;
+  border-radius: 10px;
+  background: white;
+}
+
+.rule-finding-list article > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.rule-finding-list strong {
+  overflow: hidden;
+  color: #41546b;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-finding-list small {
+  margin-left: auto;
+  color: #9a8772;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.rule-finding-list p {
+  margin: 0;
+  color: #647386;
+  font-size: 9px;
+  line-height: 1.6;
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1570,6 +1760,13 @@ footer {
   font-size: 10px;
 }
 
+.keyword-note {
+  margin: 11px 0 0;
+  color: #8c98a6;
+  font-size: 9px;
+  line-height: 1.65;
+}
+
 .modal-footer {
   display: flex;
   align-items: center;
@@ -1639,6 +1836,10 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .audit-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .results-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -1650,6 +1851,10 @@ footer {
 
   .search-box {
     flex: 1;
+  }
+
+  .rule-finding-list article {
+    grid-template-columns: 1fr;
   }
 }
 

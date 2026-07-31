@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "과세특 점검 도우미";
+const title = "학교생활기록부 종합점검기";
 const description =
-  "반별 학교생활기록부 엑셀을 합치고 과목별 세부능력 및 특기사항의 중복·유사도를 점검합니다.";
+  "NEIS 학생부 엑셀의 교과 세특과 창의적체험활동 특기사항을 병합하고 유사도·오탈자·특수기호·기재금지어·기관명·상호명을 종합 점검합니다.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
