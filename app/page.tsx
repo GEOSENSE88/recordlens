@@ -683,9 +683,25 @@ export default function Home() {
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const visibleRecords = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  useEffect(() => {
+  function changeThreshold(value: number) {
+    setThreshold(value);
     setPage(1);
-  }, [search, riskFilter, sortMode, threshold]);
+  }
+
+  function changeSearch(value: string) {
+    setSearch(value);
+    setPage(1);
+  }
+
+  function changeRiskFilter(value: "all" | RiskStatus) {
+    setRiskFilter(value);
+    setPage(1);
+  }
+
+  function changeSortMode(value: "risk" | "name" | "subject") {
+    setSortMode(value);
+    setPage(1);
+  }
 
   async function finishAnalysis(baseRecords: CheckRecord[], files: string[]) {
     if (!baseRecords.length) {
@@ -1014,7 +1030,7 @@ export default function Home() {
                   max="0.95"
                   step="0.05"
                   value={threshold}
-                  onChange={(event) => setThreshold(Number(event.target.value))}
+                  onChange={(event) => changeThreshold(Number(event.target.value))}
                 />
                 <div className="range-labels">
                   <span>넓게 보기 50%</span>
@@ -1164,7 +1180,7 @@ export default function Home() {
                     type="button"
                     key={status}
                     className={riskFilter === status ? "active" : ""}
-                    onClick={() => setRiskFilter(riskFilter === status ? "all" : status)}
+                    onClick={() => changeRiskFilter(riskFilter === status ? "all" : status)}
                   >
                     <i className={status} />
                     <span>{riskLabel(status)}</span>
@@ -1184,7 +1200,7 @@ export default function Home() {
                   max="0.95"
                   step="0.05"
                   value={threshold}
-                  onChange={(event) => setThreshold(Number(event.target.value))}
+                  onChange={(event) => changeThreshold(Number(event.target.value))}
                 />
               </div>
             </article>
@@ -1205,7 +1221,7 @@ export default function Home() {
                       type="button"
                       key={summary.subject}
                       onClick={() => {
-                        setSearch(summary.subject);
+                        changeSearch(summary.subject);
                         document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
                       }}
                     >
@@ -1240,19 +1256,21 @@ export default function Home() {
                   <input
                     type="search"
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) => changeSearch(event.target.value)}
                     placeholder="이름, 학급, 과목, 내용 검색"
                     aria-label="점검 결과 검색"
                   />
                   {search && (
-                    <button type="button" onClick={() => setSearch("")} aria-label="검색어 지우기">
+                    <button type="button" onClick={() => changeSearch("")} aria-label="검색어 지우기">
                       <X size={15} />
                     </button>
                   )}
                 </div>
                 <select
                   value={riskFilter}
-                  onChange={(event) => setRiskFilter(event.target.value as "all" | RiskStatus)}
+                  onChange={(event) =>
+                    changeRiskFilter(event.target.value as "all" | RiskStatus)
+                  }
                   aria-label="위험도 필터"
                 >
                   <option value="all">전체 위험도</option>
@@ -1264,7 +1282,7 @@ export default function Home() {
                 <select
                   value={sortMode}
                   onChange={(event) =>
-                    setSortMode(event.target.value as "risk" | "name" | "subject")
+                    changeSortMode(event.target.value as "risk" | "name" | "subject")
                   }
                   aria-label="정렬 방법"
                 >

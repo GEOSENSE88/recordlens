@@ -1,0 +1,11 @@
+services:
+  gwase-teuk-checker:
+    image: ghcr.io/geosense88/gwase-teuk-checker:latest
+    container_name: gwase-teuk-checker
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
