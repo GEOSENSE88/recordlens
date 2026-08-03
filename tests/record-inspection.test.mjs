@@ -142,3 +142,20 @@ test("flags named instructors but not historical figures", () => {
   const historical = inspectRecordText("이순신 장군과 김구 선생의 생애를 조사함.");
   assert.equal(historical.some((issue) => issue.type === "person"), false);
 });
+
+test("does not treat career wishes as a person's name", () => {
+  const careers = inspectRecordText(
+    "장래에는 화장품 회사의 화학 연구원이 되기를 희망함. 미래 건축가와 영화 감독, 변호사 진로도 함께 탐색함.",
+  );
+  assert.equal(
+    careers.some((issue) => issue.type === "person"),
+    false,
+    "진로 희망 표현은 인물·강사명으로 보지 않습니다.",
+  );
+
+  // 성씨로 시작하는 실제 이름은 그대로 잡혀야 한다.
+  const named = inspectRecordText("최영호 박사와 면담하고 김민수 강사의 특강을 들음.")
+    .filter((issue) => issue.type === "person")
+    .map((issue) => issue.match);
+  assert.deepEqual(named, ["최영호 박사", "김민수 강사"]);
+});

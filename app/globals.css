@@ -1662,9 +1662,11 @@ footer {
 
 .rule-finding-list article {
   display: grid;
-  grid-template-columns: 225px 1fr;
-  gap: 14px;
-  padding: 11px 12px;
+  /* 왼쪽 칸을 고정폭으로 두면 긴 근거 문구가 칸을 넘어 오른쪽 설명과 겹친다. */
+  grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
+  gap: 10px 18px;
+  align-items: start;
+  padding: 12px 13px;
   border: 1px solid #ecd7a4;
   border-radius: 10px;
   background: white;
@@ -1674,22 +1676,22 @@ footer {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .rule-finding-list strong {
-  overflow: hidden;
+  min-width: 0;
   color: #14403b;
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .rule-finding-list small {
-  margin-left: auto;
+  flex-basis: 100%;
   color: #8f6410;
   font-size: 12px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .rule-finding-list p {

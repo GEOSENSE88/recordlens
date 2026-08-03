@@ -429,11 +429,17 @@ const SPECIFIC_INSTITUTION_EXPRESSION = exactEntityExpression(SPECIFIC_INSTITUTI
 const INSTITUTION_ACRONYM_EXPRESSION = exactEntityExpression(INSTITUTION_ACRONYMS, true);
 const BUSINESS_ACRONYM_EXPRESSION = exactEntityExpression(BUSINESS_ACRONYMS, true);
 /**
- * 외부 강사·교수 같은 사람 이름을 찾는다.
- * `장군`, `선생`처럼 역사 인물에 붙는 호칭은 넣지 않아 교과 내용과 섞이지 않게 한다.
+ * 외부 강사·교수처럼 특정 인물의 실명을 찾는다.
+ *
+ * 앞부분을 실제 성씨로 묶어 두는 것이 핵심이다. 그냥 `한글 2~4자 + 직함`으로 잡으면
+ * `화학 연구원`, `미래 건축가`, `영화 감독`처럼 진로 희망을 적은 표현이 전부 걸려든다.
+ * 직함 목록에서도 직업 이름으로 더 자주 쓰이는 말(연구원·감독·변호사 등)은 뺐다.
+ * `장군`, `선생`처럼 역사 인물에 붙는 호칭도 넣지 않는다.
  */
+const KOREAN_SURNAMES =
+  "김|이|박|최|정|강|조|윤|장|임|한|오|서|신|권|황|안|송|류|전|홍|고|문|양|손|배|백|허|남|심|노|하|곽|성|차|주|우|구|나|지|엄|채|원|천|방|공|현|함|변|염|여|추|도|소|석|선|설|마|길|연|위|표|명|기|반|라|왕|금|옥|육|인|맹|제|모|남궁|황보|제갈|선우|독고";
 const PERSON_EXPRESSION = entityExpression(
-  "[가-힣]{2,4}\\s?(?:강사|교수|박사|연구원|원장|소장|대표이사|대표|셰프|아나운서|변호사|회계사|건축가|감독)",
+  `(?:${KOREAN_SURNAMES})[가-힣]{1,2}\\s?(?:강사|교수|박사|원장|소장|대표이사|멘토)`,
 );
 const STRICT_SCHOOL_EXPRESSION = entityExpression(
   "[가-힣A-Za-z0-9·]{2,24}(?:대학교|전문대학|사관학교|고등학교|중학교|초등학교)",
