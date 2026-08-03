@@ -6,6 +6,7 @@ import {
   classFromFileName,
   joinWrappedLines,
   readStudentHeader,
+  resolveClass,
 } from "../app/pdf-records.ts";
 
 test("drops the footer watermark that every page carries", () => {
@@ -40,7 +41,7 @@ test("keeps the space that follows a sentence mark when a line wraps", () => {
   assert.equal(joinWrappedLines(["쉼표로 끝난 줄,", "다음 줄"]), "쉼표로 끝난 줄, 다음 줄");
 });
 
-test("reads the student name from the personal section", () => {
+test("reads the student name and every enrolment row", () => {
   const header = readStudentHeader([
     "학년 반 번호 담임성명",
     "1 3 1 김담임",
@@ -49,20 +50,58 @@ test("reads the student name from the personal section", () => {
     "성명 : 홍길동 성별 : 남 주민등록번호 : 000000-0000000",
   ]);
   assert.equal(header.name, "홍길동");
-  // 학적 표는 마지막 행이 가장 최근 학년이다.
-  assert.equal(header.grade, "2학년");
-  assert.equal(header.className, "2학년 1반");
-  assert.equal(header.number, "2");
+  assert.deepEqual(header.rows, [
+    { grade: 1, classNumber: 3, studentNumber: "1" },
+    { grade: 2, classNumber: 1, studentNumber: "2" },
+  ]);
 });
 
-test("falls back to the class written in the file name", () => {
-  assert.deepEqual(classFromFileName("3학년 1반 생기부.pdf"), {
+test("reads the class from the file name only when it says one", () => {
+  assert.deepEqual(classFromFileName("3학년 1반 생기부.pdf"), { grade: 3, classNumber: 1 });
+  assert.deepEqual(classFromFileName("3학년 12반 생활기록부.pdf"), { grade: 3, classNumber: 12 });
+  assert.deepEqual(classFromFileName("생기부_익명.pdf"), { grade: 0, classNumber: 0 });
+});
+
+test("prefers the student's own record over the file name", () => {
+  const rows = [
+    { grade: 1, classNumber: 3, studentNumber: "1" },
+    { grade: 2, classNumber: 1, studentNumber: "2" },
+    { grade: 3, classNumber: 5, studentNumber: "7" },
+  ];
+  // 파일 이름과 같은 학년의 행이 있으면 반·번호 모두 학적에서 가져온다.
+  assert.deepEqual(resolveClass(rows, { grade: 3, classNumber: 1 }), {
+    grade: "3학년",
+    className: "3학년 5반",
+    number: "7",
+  });
+});
+
+test("falls back to the file name when the new school year is not in the record yet", () => {
+  // 3월 이전에 뽑은 자료에는 새 학년 행이 아직 없다.
+  const rows = [
+    { grade: 1, classNumber: 3, studentNumber: "1" },
+    { grade: 2, classNumber: 1, studentNumber: "2" },
+  ];
+  assert.deepEqual(resolveClass(rows, { grade: 3, classNumber: 1 }), {
     grade: "3학년",
     className: "3학년 1반",
+    number: "2",
   });
-  assert.deepEqual(classFromFileName("3학년 12반 생활기록부.pdf"), {
-    grade: "3학년",
-    className: "3학년 12반",
+});
+
+test("uses the latest enrolment row when the file name says nothing", () => {
+  const rows = [
+    { grade: 1, classNumber: 3, studentNumber: "1" },
+    { grade: 2, classNumber: 6, studentNumber: "4" },
+  ];
+  assert.deepEqual(resolveClass(rows, { grade: 0, classNumber: 0 }), {
+    grade: "2학년",
+    className: "2학년 6반",
+    number: "4",
   });
-  assert.deepEqual(classFromFileName("생기부.pdf"), { grade: "", className: "" });
+  assert.deepEqual(resolveClass([], { grade: 0, classNumber: 0 }), {
+    grade: "",
+    className: "",
+    number: "",
+  });
 });

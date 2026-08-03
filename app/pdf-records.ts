@@ -110,29 +110,71 @@ function cleanPage(page: number, items: TextItem[]): PageLines {
   return { page, lines };
 }
 
+export type EnrolmentRow = { grade: number; classNumber: number; studentNumber: string };
+
+/**
+ * 학적 표에서 학년마다 한 행씩 쌓이는 `학년 반 번호 담임성명` 을 모두 읽는다.
+ * 성명은 인적사항 줄에서 가져온다.
+ */
 export function readStudentHeader(lines: string[]) {
   const name = lines.map((line) => line.match(NAME_LINE)?.[1]).find(Boolean) ?? "";
-  // 학적 표는 학년마다 한 행씩 쌓인다. 마지막 행이 가장 최근 학년이다.
-  // 다만 현재 학년 행은 아직 비어 있는 경우가 많아(3학년 자료인데 2학년 행이 마지막),
-  // 학급은 파일 이름을 우선한다. 여기서 얻은 값은 파일 이름이 없을 때만 쓴다.
-  let grade = "";
-  let className = "";
-  let number = "";
+  const rows: EnrolmentRow[] = [];
   for (const line of lines) {
     const row = line.match(CLASS_ROW);
     if (!row) continue;
-    grade = `${row[1]}학년`;
-    className = `${row[1]}학년 ${row[2]}반`;
-    number = row[3];
+    rows.push({ grade: Number(row[1]), classNumber: Number(row[2]), studentNumber: row[3] });
   }
-  return { name, grade, className, number };
+  return { name, rows };
 }
 
-/** 파일 이름에서 학급을 읽어 학적 표가 비어 있을 때 대신 쓴다. */
+/** 파일 이름에 `3학년 1반` 처럼 학급이 적혀 있으면 읽는다. 없으면 빈 값. */
 export function classFromFileName(fileName: string) {
   const match = fileName.match(/(\d)\s*학년\s*(\d{1,2})\s*반/);
-  if (!match) return { grade: "", className: "" };
-  return { grade: `${match[1]}학년`, className: `${match[1]}학년 ${match[2]}반` };
+  if (!match) return { grade: 0, classNumber: 0 };
+  return { grade: Number(match[1]), classNumber: Number(match[2]) };
+}
+
+/**
+ * 학생의 학급·번호를 정한다.
+ *
+ * 학생 본인의 학적 표가 가장 정확하므로 그것을 먼저 쓴다.
+ * 다만 3월 이전에 뽑은 자료처럼 새 학년 행이 아직 없는 경우가 있어
+ * (2026년 2월에 뽑은 3학년 자료에는 2학년 행까지만 있었다),
+ * 파일 이름이 가리키는 학년의 행이 없으면 파일 이름을 따른다.
+ */
+export function resolveClass(
+  rows: EnrolmentRow[],
+  fromFileName: { grade: number; classNumber: number },
+) {
+  const latest = rows.length ? rows[rows.length - 1] : null;
+
+  if (fromFileName.grade) {
+    const matching = rows.find((row) => row.grade === fromFileName.grade);
+    if (matching) {
+      // 파일 이름과 같은 학년의 행이 있다 → 반·번호 모두 학적에서 가져온다.
+      return {
+        grade: `${matching.grade}학년`,
+        className: `${matching.grade}학년 ${matching.classNumber}반`,
+        number: matching.studentNumber,
+      };
+    }
+    // 그 학년 행이 아직 없다 → 학급은 파일 이름, 번호는 있는 것 중 최신을 쓴다.
+    return {
+      grade: `${fromFileName.grade}학년`,
+      className: `${fromFileName.grade}학년 ${fromFileName.classNumber}반`,
+      number: latest?.studentNumber ?? "",
+    };
+  }
+
+  // 파일 이름에 학급이 없다 → 학적 표의 최신 학년을 그대로 쓴다.
+  if (latest) {
+    return {
+      grade: `${latest.grade}학년`,
+      className: `${latest.grade}학년 ${latest.classNumber}반`,
+      number: latest.studentNumber,
+    };
+  }
+  return { grade: "", className: "", number: "" };
 }
 
 export type PdfParseProgress = (done: number, total: number) => void | Promise<void>;
@@ -165,12 +207,12 @@ export async function parseStudentRecordPdf(
     if (!current) return;
     const text = joinWrappedLines(current.lines);
     if (text.length > 3 && current.header.name) {
+      const resolved = resolveClass(current.header.rows, fallback);
       records.push({
-        // 파일은 반별로 내려받으므로 파일 이름의 학급이 가장 믿을 만하다.
-        className: fallback.className || current.header.className || "학급 미상",
-        grade: fallback.grade || current.header.grade || "학년 미상",
-        // 번호는 같은 이름 학생을 구분하는 용도로만 쓴다.
-        number: current.header.number || `${records.length + 1}`,
+        className: resolved.className || "학급 미상",
+        grade: resolved.grade || "학년 미상",
+        // 번호는 같은 이름 학생을 구분하는 용도로 쓴다.
+        number: resolved.number || `${records.length + 1}`,
         name: current.header.name,
         text,
         sourcePage: current.page,
