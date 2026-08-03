@@ -145,6 +145,25 @@ export type SubjectSegment = {
   body: string;
 };
 
+/** 과목명이 없는 개인별 세부능력 및 특기사항 구간에 붙일 이름. */
+export const PERSONAL_RECORD_SUBJECT = "개인별 세특";
+
+/**
+ * 개인별 세특은 과목 이름 없이 앞 과목 뒤에 그대로 이어 붙는다.
+ * NEIS가 경계를 표시해 주지 않으므로, 이 구간이 실제로 자주 시작하는 말로 자른다.
+ * `자율 탐구`처럼 일반 서술에도 흔히 나오는 말은 넣지 않았다.
+ */
+const PERSONAL_RECORD_EXPRESSION =
+  /(?:^|[.!?]\s*)(수업량\s*유연화|학교\s*자율\s*과정|진로\s*연계\s*교과\s*융합|교과\s*융합\s*수업)/gu;
+
+type Boundary = {
+  /** 이 조각이 시작하는 위치. 앞 조각은 여기서 끝난다. */
+  start: number;
+  /** 실제 내용이 시작하는 위치. 과목명과 콜론은 건너뛴다. */
+  contentStart: number;
+  subject: string;
+};
+
 /**
  * 셀 하나를 과목별 조각으로 나눈다.
  * `leading`은 첫 과목 이름이 나오기 전의 내용으로, 직전 행의 과목에 이어 붙는다.
@@ -153,24 +172,57 @@ export function splitSubjectSegments(
   text: string,
   subjects: string[],
 ): { leading: string; segments: SubjectSegment[] } {
-  if (!subjects.length) return { leading: text, segments: [] };
+  const boundaries: Boundary[] = [];
 
-  // 긴 이름을 먼저 시도해야 `수학Ⅰ`이 `수학`으로 잘리지 않는다.
-  const ordered = [...subjects].sort((left, right) => right.length - left.length);
-  const expression = new RegExp(
-    `(?:\\([12]학기\\)\\s*)?(${ordered.map(escapeRegExp).join("|")}):\\s*`,
-    "gu",
-  );
+  if (subjects.length) {
+    // 긴 이름을 먼저 시도해야 `수학Ⅰ`이 `수학`으로 잘리지 않는다.
+    const ordered = [...subjects].sort((left, right) => right.length - left.length);
+    const expression = new RegExp(
+      `(?:\\([12]학기\\)\\s*)?(${ordered.map(escapeRegExp).join("|")}):\\s*`,
+      "gu",
+    );
+    for (const match of text.matchAll(expression)) {
+      const start = match.index ?? 0;
+      boundaries.push({
+        start,
+        contentStart: start + match[0].length,
+        subject: collapse(match[1]),
+      });
+    }
+  }
 
-  const matches = [...text.matchAll(expression)];
-  if (!matches.length) return { leading: text, segments: [] };
+  PERSONAL_RECORD_EXPRESSION.lastIndex = 0;
+  for (const match of text.matchAll(PERSONAL_RECORD_EXPRESSION)) {
+    // 앞의 마침표와 공백은 빼고, 실제 문구가 시작하는 자리를 경계로 삼는다.
+    const start = (match.index ?? 0) + (match[0].length - match[1].length);
+    boundaries.push({ start, contentStart: start, subject: PERSONAL_RECORD_SUBJECT });
+  }
 
-  const leading = text.slice(0, matches[0].index).trim();
-  const segments = matches.map((match, index) => {
-    const start = (match.index ?? 0) + match[0].length;
-    const end = matches[index + 1]?.index ?? text.length;
-    return { subject: collapse(match[1]), body: text.slice(start, end) };
-  });
+  if (!boundaries.length) return { leading: text, segments: [] };
+
+  boundaries.sort((left, right) => left.start - right.start);
+
+  const kept: Boundary[] = [];
+  for (const boundary of boundaries) {
+    const previous = kept[kept.length - 1];
+    // 과목 표기 안쪽에서 걸린 개인세특 표지는 버린다.
+    if (previous && boundary.start < previous.contentStart) continue;
+    // 개인세특 구간 안에서 같은 표지가 또 나와도 조각을 더 쪼개지 않는다.
+    if (
+      previous &&
+      previous.subject === PERSONAL_RECORD_SUBJECT &&
+      boundary.subject === PERSONAL_RECORD_SUBJECT
+    ) {
+      continue;
+    }
+    kept.push(boundary);
+  }
+
+  const leading = text.slice(0, kept[0].start).trim();
+  const segments = kept.map((boundary, index) => ({
+    subject: boundary.subject,
+    body: text.slice(boundary.contentStart, kept[index + 1]?.start ?? text.length),
+  }));
 
   return { leading, segments };
 }

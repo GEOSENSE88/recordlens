@@ -70,3 +70,34 @@ test("returns the whole cell as leading text when no subject is found", () => {
   assert.equal(segments.length, 0);
   assert.equal(leading, text);
 });
+
+test("separates the unlabelled 개인별 세특 block from the previous subject", () => {
+  // 개인별 세특은 과목 이름 없이 앞 과목 뒤에 그대로 이어 붙는다.
+  const text =
+    "진로와 직업: 반려동물에 대한 관심을 바탕으로 관련 직업을 조사하고 발표함. " +
+    "자신의 진로와 역할을 성실히 모색하는 모습을 보여줌." +
+    "수업량 유연화에 따른 진로 연계 교과융합 수업(2024.07.15.-2024.07.17.)에 참여하여 조별 탐구 활동을 실시함.";
+
+  const subjects = subjectNamesFromTexts([text]);
+  const { segments } = splitSubjectSegments(text, subjects);
+
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["진로와 직업", "개인별 세특"],
+  );
+  assert.match(segments[0].body, /반려동물/);
+  assert.doesNotMatch(segments[0].body, /수업량 유연화/);
+  assert.match(segments[1].body, /수업량 유연화/);
+});
+
+test("does not split the 개인별 세특 block again on a repeated marker", () => {
+  const text =
+    "국어: 토론을 진행함." +
+    "교과 융합 수업 탐구활동에서 주제를 정함. 이어진 교과 융합 수업에서 결과를 발표함.";
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["국어", "개인별 세특"],
+  );
+  assert.match(segments[1].body, /결과를 발표함/);
+});

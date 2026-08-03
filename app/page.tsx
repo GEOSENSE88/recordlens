@@ -29,6 +29,7 @@ import {
   parseCreativeActivityRows,
 } from "./creative-records";
 import { BRAND_ICON_SRC } from "./brand-icon";
+import { REPORT_SCRIPT } from "./report-script";
 import { splitSubjectSegments, subjectNamesFromTexts } from "./subject-records";
 import {
   ENTITY_RULES_SUPPORTED,
@@ -90,6 +91,8 @@ type SentenceHighlight = {
   level: "none" | "similar" | "exact";
   score: number;
   matchedText: string;
+  /** 반대쪽에서 짝이 되는 문장의 번호. 마우스를 올렸을 때 같이 표시하는 데 쓴다. */
+  matchedIndex: number;
 };
 
 type DiffSegment = {
@@ -662,15 +665,16 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
     const normalized = normalizeText(sentence);
     let bestScore = 0;
     let bestIntersection = 0;
-    let matchedText = "";
+    let matchedIndex = -1;
     let exact = false;
 
-    for (const candidate of comparisonSentences) {
+    for (let index = 0; index < comparisonSentences.length; index += 1) {
+      const candidate = comparisonSentences[index];
       const candidateNormalized = normalizeText(candidate);
       if (normalized.length >= 8 && normalized === candidateNormalized) {
         exact = true;
         bestScore = 1;
-        matchedText = candidate;
+        matchedIndex = index;
         break;
       }
 
@@ -678,7 +682,7 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
       if (result.score > bestScore) {
         bestScore = result.score;
         bestIntersection = result.intersection;
-        matchedText = candidate;
+        matchedIndex = index;
       }
     }
 
@@ -686,7 +690,8 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
       text: sentence,
       level: exact ? "exact" : bestScore >= 0.5 && bestIntersection >= 3 ? "similar" : "none",
       score: bestScore,
-      matchedText,
+      matchedText: matchedIndex >= 0 ? comparisonSentences[matchedIndex] : "",
+      matchedIndex,
     };
   });
 }
@@ -750,9 +755,15 @@ function diffSegments(text: string, comparisonText: string): DiffSegment[] {
 function HighlightedComparisonText({
   text,
   comparisonText,
+  /**
+   * 양쪽에서 같은 문장을 함께 표시하기 위한 짝 번호를 어디서 가져올지.
+   * A쪽(`match`)은 짝이 되는 B 문장 번호를, B쪽(`self`)은 자기 번호를 쓴다.
+   */
+  pairFrom,
 }: {
   text: string;
   comparisonText: string;
+  pairFrom: "match" | "self";
 }) {
   return (
     <p className="comparison-text">
@@ -762,10 +773,12 @@ function HighlightedComparisonText({
         }
 
         const label = sentence.level === "exact" ? "완전 일치" : "높은 유사도";
+        const pair = `p${pairFrom === "match" ? sentence.matchedIndex : index}`;
         if (sentence.level === "similar") {
           return (
             <span
               className="sentence-highlight similar"
+              data-pair={pair}
               key={`${index}-${sentence.text}`}
               title={`${label} ${formatPercent(sentence.score)} · 같은 부분은 음영, 다른 부분은 붉은 글자`}
             >
@@ -789,6 +802,7 @@ function HighlightedComparisonText({
         return (
           <mark
             className={`sentence-highlight ${sentence.level}`}
+            data-pair={pair}
             key={`${index}-${sentence.text}`}
             title={`${label} ${formatPercent(sentence.score)}`}
           >
@@ -798,6 +812,26 @@ function HighlightedComparisonText({
       })}
     </p>
   );
+}
+
+/**
+ * 문장에 마우스를 올리면 양쪽 기록에서 짝이 되는 문장을 함께 표시한다.
+ * 같은 `data-pair` 값을 가진 문장에 표시용 클래스를 붙였다 뗀다.
+ */
+function linkPair(event: React.MouseEvent<HTMLDivElement>) {
+  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-pair]");
+  if (!target) return;
+  const pair = target.dataset.pair;
+  if (!pair) return;
+  for (const node of event.currentTarget.querySelectorAll(`[data-pair="${pair}"]`)) {
+    node.classList.add("pair-active");
+  }
+}
+
+function clearPair(event: React.MouseEvent<HTMLDivElement>) {
+  for (const node of event.currentTarget.querySelectorAll(".pair-active")) {
+    node.classList.remove("pair-active");
+  }
 }
 
 function inspectionSegments(text: string, issues: InspectionIssue[]) {
@@ -885,43 +919,6 @@ function escapeHtml(value: unknown) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function inspectionHighlightedReportHtml(text: string, issues: InspectionIssue[]) {
-  return inspectionSegments(text, issues)
-    .map((segment) =>
-      segment.issue
-        ? `<mark class="inspection-text-highlight ${segment.issue.type}" title="${escapeHtml(
-            `${segment.issue.label}: ${segment.issue.guidance}`,
-          )}">${escapeHtml(segment.text)}</mark>`
-        : escapeHtml(segment.text),
-    )
-    .join("");
-}
-
-function highlightedReportHtml(text: string, comparisonText: string) {
-  return highlightSentences(text, comparisonText)
-    .map((sentence) => {
-      const content = escapeHtml(sentence.text);
-      if (sentence.level === "none") return content;
-      const label = sentence.level === "exact" ? "완전 일치" : "높은 유사도";
-      if (sentence.level === "similar") {
-        const diffContent = diffSegments(sentence.text, sentence.matchedText)
-          .map((segment) => {
-            if (segment.changed) {
-              return `<span class="diff-fragment">${escapeHtml(segment.text)}</span>`;
-            }
-            if (/[\p{L}\p{N}]/u.test(segment.text)) {
-              return `<mark class="common-fragment">${escapeHtml(segment.text)}</mark>`;
-            }
-            return escapeHtml(segment.text);
-          })
-          .join("");
-        return `<span class="similar" title="${label} ${formatPercent(sentence.score)} · 같은 부분은 음영, 다른 부분은 붉은 글자">${diffContent}</span>`;
-      }
-      return `<mark class="${sentence.level}" title="${label} ${formatPercent(sentence.score)}">${content}</mark>`;
-    })
-    .join("");
 }
 
 export default function Home() {
@@ -1287,118 +1284,57 @@ export default function Home() {
     const brandMarkHtml = brandIcon
       ? `<img class="brand-mark" src="${brandIcon}" alt="" width="34" height="34" />`
       : '<span class="brand-mark">✓</span>';
-    const reportRows = orderedRecords
-      .map((record, index) => {
-        const status = riskStatus(record, threshold);
-        const issueTypes = [...new Set(record.issues.map((issue) => issue.type))].join(" ");
-        const haystack = normalizeText(
-          `${record.name} ${record.className} ${record.subject} ${record.text} ${record.matchName}`,
-        );
-        return `
-          <tr data-row="${index}" data-status="${status}" data-issues="${escapeHtml(issueTypes)}" data-similarity="${record.similarity}" data-name="${escapeHtml(record.name)}" data-subject="${escapeHtml(record.subject)}" data-search="${escapeHtml(haystack)}">
-            <td><span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span></td>
-            <td><strong class="student-name">${escapeHtml(record.name)}</strong><span class="muted">${escapeHtml(record.className)}</span></td>
-            <td><span class="subject-chip">${escapeHtml(record.subject)}</span></td>
-            <td><strong class="similarity-number ${status}">${formatPercent(record.similarity)}</strong>${
-              record.matchName
-                ? `<span class="muted">↔ ${escapeHtml(record.matchName)}</span>`
-                : ""
-            }</td>
-            <td><p class="record-preview">${inspectionHighlightedReportHtml(record.text, record.issues)}</p></td>
-            <td><div class="issue-pills">${
-              record.issues.length
-                ? record.issues
-                    .slice(0, 3)
-                    .map(
-                      (issue) =>
-                        `<span class="${issue.type}">${escapeHtml(issue.label)} · ${escapeHtml(issue.match)}</span>`,
-                    )
-                    .join("") +
-                  (record.issues.length > 3
-                    ? `<small>외 ${record.issues.length - 3}건</small>`
-                    : "")
-                : "<small>발견 없음</small>"
-            }</div></td>
-            <td>${
-              record.matchText || record.issues.length
-                ? `<a class="compare-button" href="#comparison-${index + 1}" data-open="${index + 1}">상세 <b>›</b></a>`
-                : '<span class="compare-button disabled">상세</span>'
-            }</td>
-          </tr>`;
-      })
-      .join("");
-    const comparisonDialogs = orderedRecords
-      .map((record, index) => {
-        if (!record.matchText && !record.issues.length) return "";
-        const status = riskStatus(record, threshold);
-        const keywords = sharedKeywords(record);
-        const issueItems = record.issues
-          .map(
-            (issue) => `
-              <li class="${issue.type}">
-                <div><strong>${escapeHtml(issue.label)}</strong><mark>${escapeHtml(issue.match)}</mark></div>
-                <p>${escapeHtml(issue.guidance)}</p>
-                <small>${escapeHtml(issue.reference)}</small>
-              </li>`,
-          )
-          .join("");
-        return `
-          <section class="compare-dialog" id="comparison-${index + 1}" aria-label="기록 종합점검">
-            <a class="dialog-backdrop" href="#results" data-close="1" aria-label="상세 창 닫기"></a>
-            <article class="dialog-sheet">
-              <header class="dialog-header">
-                <div>
-                  <span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span>
-                  <h2>${escapeHtml(record.name)} · ${escapeHtml(record.subject)}</h2>
-                  <small class="dialog-sub">${escapeHtml(record.className)}</small>
-                </div>
-                <a class="dialog-close" href="#results" data-close="1" aria-label="상세 창 닫기">×</a>
-              </header>
-              ${
-                issueItems
-                  ? `<section class="inspection-source">
-                      <div><strong>지적 위치가 표시된 원문</strong><small>색칠된 표현에 마우스를 올리면 점검 이유를 확인할 수 있습니다.</small></div>
-                      <p>${inspectionHighlightedReportHtml(record.text, record.issues)}</p>
-                    </section>
-                    <section class="rule-findings"><h3>2026 기재요령·문장 점검</h3><ul>${issueItems}</ul><p>자동 탐지는 보조 기능입니다. 기관명·상호명과 맞춤법은 문맥 및 허용 예외를 직접 확인해 주세요.</p></section>`
-                  : ""
-              }
-              ${
-                record.matchText
-                  ? `<div class="similarity-callout">
-                      <div><span>자카드 유사도</span><strong>${formatPercent(record.similarity)}</strong></div>
-                      <p>전체 고유 단어 중 ${sharedKeywordCount(record)}개가 공통으로 확인되었습니다.</p>
-                    </div>
-                    <div class="highlight-guide">
-                      <span><i class="exact"></i>완전 일치 문장·공통 부분</span>
-                      <span><i class="similar"></i>문장 내 다른 부분</span>
-                    </div>
-                    <div class="comparison-grid">
-                      <section>
-                        <h3>A · ${escapeHtml(record.name)}</h3>
-                        <small>${escapeHtml(record.className)} · ${escapeHtml(record.subject)}</small>
-                        <p>${highlightedReportHtml(record.text, record.matchText)}</p>
-                      </section>
-                      <section>
-                        <h3>B · ${escapeHtml(record.matchName || "비교 대상")}</h3>
-                        <small>가장 유사한 다른 기록</small>
-                        <p>${highlightedReportHtml(record.matchText, record.text)}</p>
-                      </section>
-                    </div>
-                    ${
-                      keywords.length
-                        ? `<div class="keywords"><span>두 문장에 함께 나온 주요 단어</span>${keywords
-                            .map((keyword) => `<i>${escapeHtml(keyword)}</i>`)
-                            .join("")}<small>※ 아래 기록을 대조하여 공통 단어 목록은 최대 18개까지 표시합니다. 유사도 계산은 두 기록의 전체 고유 단어를 사용합니다.</small></div>`
-                        : ""
-                    }`
-                  : ""
-              }
-              <footer>원본: ${escapeHtml(record.sourceFile)} · ${record.sourceRow}행</footer>
-            </article>
-          </section>`;
-      })
-      .join("");
+
+    /*
+     * 예전에는 모든 기록의 표 행과 상세 창을 미리 HTML로 만들어 넣었다.
+     * 그러면 본문이 기록마다 네 번씩(표 미리보기, 원문 강조, A 비교, B 비교) 복사되고
+     * 낱말마다 태그가 붙어, 7,500건 기준 70MB가 넘고 여는 데만 30초가 걸렸다.
+     * 이제는 본문을 한 번만 데이터로 담고 화면은 브라우저에서 그린다.
+     * 지적 사유처럼 반복되는 문구는 규칙 목록으로 따로 빼 중복을 없앴다.
+     */
+    const ruleKeys = new Map<string, number>();
+    const rules: Array<{ t: string; l: string; g: string; r: string; s: string }> = [];
+    const ruleIndex = (issue: InspectionIssue) => {
+      const key = `${issue.type}|${issue.label}|${issue.guidance}|${issue.reference}|${issue.severity}`;
+      const found = ruleKeys.get(key);
+      if (found !== undefined) return found;
+      const next = rules.length;
+      ruleKeys.set(key, next);
+      rules.push({
+        t: issue.type,
+        l: issue.label,
+        g: issue.guidance,
+        r: issue.reference,
+        s: issue.severity,
+      });
+      return next;
+    };
+
+    const indexById = new Map(orderedRecords.map((record, index) => [record.id, index]));
+    const payload = {
+      threshold,
+      pageSize: PAGE_SIZE,
+      categoryLabel,
+      contentLabel,
+      rules,
+      records: orderedRecords.map((record) => ({
+        n: record.name,
+        c: record.className,
+        s: record.subject,
+        t: record.text,
+        // 비교 대상은 번호로만 가리켜 본문이 두 번 저장되지 않게 한다.
+        m: record.matchId !== null ? (indexById.get(record.matchId) ?? -1) : -1,
+        mn: record.matchName,
+        sim: Number(record.similarity.toFixed(6)),
+        eg: record.exactGroupSize,
+        f: record.sourceFile,
+        w: record.sourceRow,
+        i: record.issues.map((issue) => [ruleIndex(issue), issue.index, issue.match]),
+      })),
+    };
+    // `</script>` 가 문자열 안에 들어가도 태그가 끊기지 않도록 막는다.
+    const payloadJson = JSON.stringify(payload).replace(/</g, "\\u003c");
+
     const subjectItems = subjectSummaries
       .slice(0, 5)
       .map(
@@ -1575,6 +1511,9 @@ export default function Home() {
     mark { margin:0 -1px; padding:2px 3px; border-radius:4px; color:inherit; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     mark.exact { background:#fdece6; box-shadow:inset 0 -1px 0 rgba(198,66,66,.24); }
     .similar .common-fragment { background:#fdece6; box-shadow:inset 0 -1px 0 rgba(198,66,66,.24); }
+    .sentence-highlight { cursor:default; transition:background-color 120ms ease, box-shadow 120ms ease; }
+    /* 한쪽 문장에 마우스를 올리면 양쪽의 짝이 되는 문장을 함께 짚어 준다. */
+    .sentence-highlight.pair-active { background:var(--brand-100); box-shadow:inset 0 0 0 1px var(--brand-400), 0 1px 6px rgba(28,113,108,.18); }
     .similar .diff-fragment { color:#b8442a; font-weight:800; }
     .keywords { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:0 25px 18px; }
     .keywords span { margin-right:4px; color:#1c534d; font-size:12px; font-weight:700; }
@@ -1663,7 +1602,7 @@ export default function Home() {
       <div class="table-wrap">
         <table>
           <thead><tr><th>점검 결과</th><th>학생 / 학급</th><th>${escapeHtml(categoryLabel)}</th><th>최대 유사도</th><th>${escapeHtml(contentLabel)}</th><th>기재요령 점검</th><th>상세</th></tr></thead>
-          <tbody id="report-body">${reportRows || '<tr><td colspan="7">조건에 맞는 기록이 없습니다.</td></tr>'}</tbody>
+          <tbody id="report-body"></tbody>
         </table>
         <div id="report-empty" class="report-empty" hidden>조건에 맞는 기록이 없습니다. 검색어나 필터를 바꿔 보세요.</div>
       </div>
@@ -1679,123 +1618,9 @@ export default function Home() {
     <div class="report-notice">자카드 유사도는 전체 고유 단어의 교집합과 합집합을 비교합니다. 기재요령 점검은 2026 학교생활기록부 기재요령 p.18-19, p.30, p.61, p.82의 주요 기준을 바탕으로 한 보조 탐지이므로 원문과 허용 예외를 직접 확인하세요.</div>
   </main>
   <footer class="site-footer"><span>Record LENS · 학교생활기록부 종합점검</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
-  ${comparisonDialogs}
-  <script>
-  (function () {
-    // 저장본 안에서도 검색·필터·정렬·페이지 넘김과 상세 창을 그대로 쓸 수 있게 한다.
-    var PAGE_SIZE = ${PAGE_SIZE};
-    var body = document.getElementById("report-body");
-    if (!body) return;
-    var rows = Array.prototype.slice.call(body.querySelectorAll("tr[data-row]"));
-    if (!rows.length) return;
-
-    var searchInput = document.getElementById("report-search");
-    var riskSelect = document.getElementById("report-risk");
-    var issueSelect = document.getElementById("report-issue");
-    var sortSelect = document.getElementById("report-sort");
-    var rangeLabel = document.getElementById("report-range");
-    var pageLabel = document.getElementById("report-page");
-    var visibleCount = document.getElementById("visible-count");
-    var emptyNote = document.getElementById("report-empty");
-    var prevButton = document.getElementById("report-prev");
-    var nextButton = document.getElementById("report-next");
-    var page = 1;
-    var matched = rows;
-
-    // 앱의 normalizeText와 같은 방식으로 검색어를 다듬는다.
-    function normalize(value) {
-      return value
-        .toLocaleLowerCase("ko-KR")
-        .replace(/[.,!?()\\[\\]/\\-_&@#$%^]/g, " ")
-        .replace(/\\s+/g, " ")
-        .trim();
-    }
-
-    function compare(a, b) {
-      var mode = sortSelect ? sortSelect.value : "risk";
-      if (mode === "name") return a.getAttribute("data-name").localeCompare(b.getAttribute("data-name"), "ko");
-      if (mode === "subject") return a.getAttribute("data-subject").localeCompare(b.getAttribute("data-subject"), "ko");
-      var diff = Number(b.getAttribute("data-similarity")) - Number(a.getAttribute("data-similarity"));
-      return diff || a.getAttribute("data-name").localeCompare(b.getAttribute("data-name"), "ko");
-    }
-
-    function apply() {
-      var term = normalize(searchInput ? searchInput.value : "");
-      var risk = riskSelect ? riskSelect.value : "all";
-      var issue = issueSelect ? issueSelect.value : "all";
-
-      matched = rows.filter(function (row) {
-        if (risk !== "all" && row.getAttribute("data-status") !== risk) return false;
-        if (issue !== "all" && (" " + row.getAttribute("data-issues") + " ").indexOf(" " + issue + " ") < 0) return false;
-        if (!term) return true;
-        return row.getAttribute("data-search").indexOf(term) >= 0;
-      });
-      matched.sort(compare);
-
-      var pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
-      if (page > pages) page = pages;
-      var start = (page - 1) * PAGE_SIZE;
-      var shown = matched.slice(start, start + PAGE_SIZE);
-
-      rows.forEach(function (row) { row.hidden = true; });
-      shown.forEach(function (row) { row.hidden = false; body.appendChild(row); });
-
-      if (visibleCount) visibleCount.textContent = matched.length.toLocaleString("ko-KR");
-      if (pageLabel) pageLabel.textContent = page + " / " + pages;
-      if (rangeLabel) {
-        rangeLabel.textContent = matched.length
-          ? "전체 " + matched.length.toLocaleString("ko-KR") + "건 중 " + (start + 1) + "–" + (start + shown.length) + "건"
-          : "조건에 맞는 기록 없음";
-      }
-      if (emptyNote) emptyNote.hidden = matched.length > 0;
-      if (prevButton) prevButton.disabled = page <= 1;
-      if (nextButton) nextButton.disabled = page >= pages;
-    }
-
-    function reset() { page = 1; apply(); }
-
-    if (searchInput) searchInput.addEventListener("input", reset);
-    if (riskSelect) riskSelect.addEventListener("change", reset);
-    if (issueSelect) issueSelect.addEventListener("change", reset);
-    if (sortSelect) sortSelect.addEventListener("change", reset);
-    if (prevButton) prevButton.addEventListener("click", function () { if (page > 1) { page -= 1; apply(); } });
-    if (nextButton) nextButton.addEventListener("click", function () {
-      if (page < Math.max(1, Math.ceil(matched.length / PAGE_SIZE))) { page += 1; apply(); }
-    });
-
-    // 상세 창: 필터로 행이 숨겨져 있어도 열 수 있도록 자바스크립트로 직접 연다.
-    var openDialog = null;
-    function close() {
-      if (!openDialog) return;
-      openDialog.classList.remove("is-open");
-      openDialog = null;
-      document.body.style.overflow = "";
-      if (location.hash.indexOf("#comparison-") === 0) {
-        history.replaceState(null, "", location.pathname + location.search);
-      }
-    }
-    function open(id) {
-      var dialog = document.getElementById("comparison-" + id);
-      if (!dialog) return;
-      close();
-      dialog.classList.add("is-open");
-      openDialog = dialog;
-      document.body.style.overflow = "hidden";
-    }
-
-    document.addEventListener("click", function (event) {
-      var opener = event.target.closest ? event.target.closest("[data-open]") : null;
-      if (opener) { event.preventDefault(); open(opener.getAttribute("data-open")); return; }
-      var closer = event.target.closest ? event.target.closest("[data-close]") : null;
-      if (closer) { event.preventDefault(); close(); }
-    });
-    document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") close();
-    });
-
-    apply();
-  })();
-  </script>
+  <div id="dialog-host"></div>
+  <script type="application/json" id="record-data">${payloadJson}</script>
+  <script>${REPORT_SCRIPT}</script>
 </body>
 </html>`;
     const blob = new Blob(["\uFEFF", html], { type: "text/html;charset=utf-8" });
@@ -2510,7 +2335,7 @@ export default function Home() {
                   </span>
                   <small>붉은 음영은 같은 부분, 붉은 글자는 서로 다른 부분입니다.</small>
                 </div>
-                <div className="comparison-grid">
+                <div className="comparison-grid" onMouseOver={linkPair} onMouseOut={clearPair}>
                   <article>
                     <div className="comparison-label">
                       <span>A</span>
@@ -2524,6 +2349,7 @@ export default function Home() {
                     <HighlightedComparisonText
                       text={selectedRecord.text}
                       comparisonText={selectedRecord.matchText}
+                      pairFrom="match"
                     />
                   </article>
                   <article>
@@ -2537,6 +2363,7 @@ export default function Home() {
                     <HighlightedComparisonText
                       text={selectedRecord.matchText}
                       comparisonText={selectedRecord.text}
+                      pairFrom="self"
                     />
                   </article>
                 </div>
