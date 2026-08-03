@@ -1,12 +1,12 @@
-# 학교생활기록부 종합점검기
+# Record LENS · 학교생활기록부 종합점검기
 
 NEIS에서 내려받은 반별 엑셀 파일을 병합하고, 교과 세부능력 및 특기사항과
 창의적체험활동 특기사항의 유사 문장 및 기재요령 확인 항목을 점검하는 웹앱입니다.
 
 ## 실행 주소
 
-- GitHub Pages: https://geosense88.github.io/gwase-teuk-checker/
-- Sites: https://gwase-teuk-checker.geosense.chatgpt.site/
+- GitHub Pages: https://geosense88.github.io/recordlens/
+- Sites: https://recordlens.geosense.chatgpt.site/
 
 ## 개인정보 처리
 
@@ -48,5 +48,5 @@ npm run build:pages
 ## 배포
 
 - `main` 브랜치가 갱신되면 GitHub Pages가 자동 배포됩니다.
-- Docker 이미지는 `ghcr.io/geosense88/gwase-teuk-checker:latest`로 게시됩니다.
+- Docker 이미지는 `ghcr.io/geosense88/recordlens:latest`로 게시됩니다.
 - Docker 및 서버 배포 방법은 [DEPLOYMENT.md](./DEPLOYMENT.md)를 참고하세요.

@@ -1,7 +1,7 @@
 services:
-  gwase-teuk-checker:
-    image: ghcr.io/geosense88/gwase-teuk-checker:latest
-    container_name: gwase-teuk-checker
+  recordlens:
+    image: ghcr.io/geosense88/recordlens:latest
+    container_name: recordlens
     restart: unless-stopped
     ports:
       - "${APP_PORT:-3000}:3000"

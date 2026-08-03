@@ -36,3 +36,18 @@ test("detects and parses a NEIS creative activity export", () => {
   assert.equal(records.some((record) => record.text.includes("희망분야")), false);
   assert.equal(records.some((record) => record.text === "0"), false);
 });
+
+test("survives empty and short rows in the sheet", () => {
+  const ragged = [
+    ["3학년 1반 학교생활기록부 창의적체험활동상황"],
+    [],
+    ["번호"],
+    ["1", "가학생", "1", "자율활동", "10", "학급 활동에 성실히 참여함."],
+    [],
+  ];
+
+  assert.equal(isCreativeActivityExport(ragged), true);
+  const records = parseCreativeActivityRows(ragged);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].name, "가학생");
+});

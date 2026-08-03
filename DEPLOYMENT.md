@@ -1,13 +1,17 @@
-# 배포 안내
+# Record LENS 배포 안내
 
 이 웹앱은 업로드한 엑셀 파일을 브라우저 안에서만 처리합니다. 학생 기록 파일은 서버나 GitHub로 전송되지 않습니다.
+
+> 저장소 이름을 `gwase-teuk-checker`에서 `recordlens`로 바꾼 뒤에야 아래 주소가 동작합니다.
+> GitHub 저장소 Settings → General → Repository name에서 변경하세요. GitHub가 옛 주소를
+> 새 주소로 자동 리다이렉트하므로 기존 링크도 당분간 함께 열립니다.
 
 ## GitHub Pages
 
 `main` 브랜치에 변경 사항이 올라가면 GitHub Actions가 정적 사이트를 빌드해 아래 주소에 게시합니다.
 
 ```text
-https://geosense88.github.io/gwase-teuk-checker/
+https://geosense88.github.io/recordlens/
 ```
 
 ## GitHub Actions와 컨테이너 이미지
@@ -15,7 +19,7 @@ https://geosense88.github.io/gwase-teuk-checker/
 `main` 브랜치에 변경 사항이 올라가면 GitHub Actions가 Docker 이미지를 빌드해 아래 주소에 게시합니다.
 
 ```text
-ghcr.io/geosense88/gwase-teuk-checker:latest
+ghcr.io/geosense88/recordlens:latest
 ```
 
 저장소와 컨테이너 패키지가 비공개인 동안에는 서버에서 GitHub Personal Access Token으로 먼저 로그인해야 합니다. 토큰에는 `read:packages` 권한이 필요합니다.
@@ -52,12 +56,12 @@ docker compose up -d
 GitHub Container Registry를 사용하지 않고 소스에서 직접 빌드할 수도 있습니다.
 
 ```bash
-docker build -t gwase-teuk-checker .
+docker build -t recordlens .
 docker run -d \
-  --name gwase-teuk-checker \
+  --name recordlens \
   --restart unless-stopped \
   -p 3000:3000 \
-  gwase-teuk-checker
+  recordlens
 ```
 
 ## 운영 점검

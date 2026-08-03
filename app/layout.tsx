@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "학교생활기록부 종합점검기";
+const title = "Record LENS · 학교생활기록부 종합점검기";
 const description =
   "NEIS 학생부 엑셀의 교과 세특과 창의적체험활동 특기사항을 병합하고 유사도·오탈자·특수기호·기재금지어·기관명·상호명을 종합 점검합니다.";
 

@@ -18,7 +18,7 @@ test("renders the finished Korean workbook checker", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<html[^>]*lang="ko"/i);
-  assert.match(html, /<title>학교생활기록부 종합점검기<\/title>/i);
+  assert.match(html, /<title>Record LENS · 학교생활기록부 종합점검기<\/title>/i);
   assert.match(html, /학생부 기록, 올리면/);
   assert.match(html, /파일은 이 기기에서만 처리됩니다/);
   assert.doesNotMatch(html, /codex-preview|Building your site|react-loading-skeleton/i);

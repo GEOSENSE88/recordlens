@@ -3,7 +3,7 @@ import { once } from "node:events";
 
 const port = "4173";
 const baseUrl = `http://127.0.0.1:${port}`;
-const pageUrl = `${baseUrl}/gwase-teuk-checker/`;
+const pageUrl = `${baseUrl}/recordlens/`;
 const server = spawn(
   process.execPath,
   [

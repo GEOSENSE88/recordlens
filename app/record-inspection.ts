@@ -23,6 +23,9 @@ type TextRule = {
   severity?: "danger" | "warning";
 };
 
+/** 한 기록에서 같은 종류의 지적을 최대 몇 건까지 보여줄지. */
+const MAX_ISSUES_PER_TYPE = 10;
+
 const PROHIBITED_RULES: TextRule[] = [
   {
     expression:
@@ -33,7 +36,9 @@ const PROHIBITED_RULES: TextRule[] = [
     severity: "danger",
   },
   {
-    expression: /교내\s*대회|교외\s*대회|대회\s*(?:참가|참여|수상|입상)|(?:최우수|우수|장려|공로)상|표창장|감사장|수상\s*(?:실적|사실)|입상/gu,
+    // `상` 뒤에는 조사 또는 문장부호만 허용해 `우수상태`, `장려상황` 같은 복합어 오탐을 막는다.
+    expression:
+      /교내\s*대회|교외\s*대회|대회\s*(?:참가|참여|수상|입상)|(?:최우수|우수|장려|공로)상(?=$|[\s,.;:!?·→←\-)"'’]|(?:을|를|은|는|이|가|에|과|와|도|만|의|으로|로)(?![가-힣]))|표창장|감사장|수상\s*(?:실적|사실)|입상/gu,
     label: "대회·수상",
     guidance: "수상경력 이외 항목에는 대회 참여·수상 사실을 기재하지 않으며, ‘대회’라는 용어도 주의해야 합니다.",
     reference: "2026 기재요령 p.18, p.61",
@@ -205,32 +210,49 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const ENTITY_HEAD = "(?<![가-힣A-Za-z0-9])";
+const ENTITY_TAIL =
+  `(?=$|[\\s,.;:!?·→←\\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)` +
+  `(?=$|[\\s,.;:!?·→←\\-)]|["'’]))`;
+
+/**
+ * iOS Safari 16.4 미만은 정규식 lookbehind를 지원하지 않는다. 모듈 최상위에서 그대로
+ * 던지면 앱 전체가 빈 화면이 되므로, 지원하지 않는 브라우저에서는 해당 규칙만 비활성화한다.
+ */
+function entityExpression(body: string): RegExp | null {
+  try {
+    return new RegExp(`${ENTITY_HEAD}(?:${body})${ENTITY_TAIL}`, "giu");
+  } catch {
+    return null;
+  }
+}
+
 function exactEntityExpression(values: string[]) {
-  const pattern = values
-    .map(escapeRegExp)
-    .sort((left, right) => right.length - left.length)
-    .join("|");
-  return new RegExp(
-    `(?<![가-힣A-Za-z0-9])(?:${pattern})(?=$|[\\s,.;:!?·→←\\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\\s,.;:!?·→←\\-)]|["'’]))`,
-    "giu",
+  return entityExpression(
+    values
+      .map(escapeRegExp)
+      .sort((left, right) => right.length - left.length)
+      .join("|"),
   );
 }
 
 const SPECIFIC_INSTITUTION_EXPRESSION = exactEntityExpression(SPECIFIC_INSTITUTIONS);
-const STRICT_SCHOOL_EXPRESSION =
-  /(?<![가-힣A-Za-z0-9])(?:[가-힣A-Za-z0-9·]{2,24})(?:대학교|전문대학|사관학교|고등학교|중학교|초등학교)(?=$|[\s,.;:!?·→←\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\s,.;:!?·→←\-)]|["'’]))/gu;
-const NAMED_INSTITUTION_EXPRESSION =
-  /(?<![가-힣A-Za-z0-9])(?:한국|대한|국립|국제|세계|미국|서울|충북|청주|산남|[A-Z]{2,})[가-힣A-Za-z0-9·]{1,20}(?:연구원|연구소|학회|협회|재단|방송국|신문사|병원|박물관|미술관|도서관|공단|공사|위원회|전당)(?=$|[\s,.;:!?·→←\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\s,.;:!?·→←\-)]|["'’]))/gu;
-const SPECIFIC_PLACE_INSTITUTION_EXPRESSION =
-  /(?<![가-힣A-Za-z0-9])(?:[가-힣]{2,12})(?:공항|경찰서)(?=$|[\s,.;:!?·→←\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\s,.;:!?·→←\-)]|["'’]))/gu;
-const BUSINESS_EXPRESSION = new RegExp(
-  `(?<![가-힣A-Za-z0-9])(?:(?:주식회사|\\(주\\)|㈜)\\s*[가-힣A-Za-z0-9·]+|${SPECIFIC_BUSINESSES.map(
-    escapeRegExp,
-  )
-    .sort((left, right) => right.length - left.length)
-    .join("|")})(?=$|[\\s,.;:!?·→←\\-)]|["'’]|(?:에서|에게|으로|의|과|와|은|는|이|가|을|를|도|만|에|로)(?=$|[\\s,.;:!?·→←\\-)]|["'’]))`,
-  "giu",
+const STRICT_SCHOOL_EXPRESSION = entityExpression(
+  "[가-힣A-Za-z0-9·]{2,24}(?:대학교|전문대학|사관학교|고등학교|중학교|초등학교)",
 );
+const NAMED_INSTITUTION_EXPRESSION = entityExpression(
+  "(?:한국|대한|국립|국제|세계|미국|서울|충북|청주|산남|[A-Z]{2,})[가-힣A-Za-z0-9·]{1,20}" +
+    "(?:연구원|연구소|학회|협회|재단|방송국|신문사|병원|박물관|미술관|도서관|공단|공사|위원회|전당)",
+);
+const SPECIFIC_PLACE_INSTITUTION_EXPRESSION = entityExpression("[가-힣]{2,12}(?:공항|경찰서)");
+const BUSINESS_EXPRESSION = entityExpression(
+  `(?:주식회사|\\(주\\)|㈜)\\s*[가-힣A-Za-z0-9·]+|${SPECIFIC_BUSINESSES.map(escapeRegExp)
+    .sort((left, right) => right.length - left.length)
+    .join("|")}`,
+);
+
+/** 기관명·상호명 규칙을 이 브라우저에서 사용할 수 있는지 여부. */
+export const ENTITY_RULES_SUPPORTED = SPECIFIC_INSTITUTION_EXPRESSION !== null;
 const ALLOWED_INSTITUTIONS = new Set([
   "대한민국학술원",
   "국사편찬위원회",
@@ -248,8 +270,11 @@ function collectMatches(
 ) {
   rule.expression.lastIndex = 0;
   for (const match of text.matchAll(rule.expression)) {
-    const matchedText = match[0].trim();
+    const raw = match[0];
+    const matchedText = raw.trim();
     if (!matchedText) continue;
+    // 규칙이 앞뒤 공백까지 잡는 경우가 있어, 잘라낸 만큼 위치를 밀어 원문 강조 구간을 맞춘다.
+    const leadingSpace = raw.length - raw.trimStart().length;
     output.push({
       type,
       label: rule.label,
@@ -257,7 +282,7 @@ function collectMatches(
       guidance: rule.guidance,
       reference: rule.reference,
       severity: rule.severity ?? "warning",
-      index: match.index ?? 0,
+      index: (match.index ?? 0) + leadingSpace,
     });
   }
 }
@@ -287,6 +312,7 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     NAMED_INSTITUTION_EXPRESSION,
     SPECIFIC_PLACE_INSTITUTION_EXPRESSION,
   ]) {
+    if (!expression) continue;
     expression.lastIndex = 0;
     for (const match of text.matchAll(expression)) {
       const institution = match[0];
@@ -304,30 +330,41 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     }
   }
 
-  BUSINESS_EXPRESSION.lastIndex = 0;
-  for (const match of text.matchAll(BUSINESS_EXPRESSION)) {
-    issues.push({
-      type: "business",
-      label: "상호명",
-      match: match[0],
-      guidance:
-        "구체적인 회사·제품·서비스의 실명으로 보입니다. 2024·2025 교사 점검 사례와 허용 예외를 대조해 주세요.",
-      reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
-      severity: "warning",
-      index: match.index ?? 0,
-    });
+  if (BUSINESS_EXPRESSION) {
+    BUSINESS_EXPRESSION.lastIndex = 0;
+    for (const match of text.matchAll(BUSINESS_EXPRESSION)) {
+      issues.push({
+        type: "business",
+        label: "상호명",
+        match: match[0],
+        guidance:
+          "구체적인 회사·제품·서비스의 실명으로 보입니다. 2024·2025 교사 점검 사례와 허용 예외를 대조해 주세요.",
+        reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
+        severity: "warning",
+        index: match.index ?? 0,
+      });
+    }
   }
 
   const seen = new Set<string>();
-  return issues
+  const deduped = issues
     .sort((left, right) => left.index - right.index || left.type.localeCompare(right.type))
     .filter((issue) => {
       const key = `${issue.type}|${issue.index}|${issue.match}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .slice(0, 30);
+    });
+
+  // 상한은 항목 종류별로 따로 적용한다. 예전처럼 위치 순으로 전체를 자르면 특수기호가
+  // 수십 개인 기록에서 뒤쪽의 기재금지어 지적이 통째로 사라졌다.
+  const kept = new Map<InspectionIssueType, number>();
+  return deduped.filter((issue) => {
+    const used = kept.get(issue.type) ?? 0;
+    if (used >= MAX_ISSUES_PER_TYPE) return false;
+    kept.set(issue.type, used + 1);
+    return true;
+  });
 }
 
 export const INSPECTION_LABELS: Record<InspectionIssueType, string> = {

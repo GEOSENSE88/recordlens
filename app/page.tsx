@@ -29,6 +29,7 @@ import {
   parseCreativeActivityRows,
 } from "./creative-records";
 import {
+  ENTITY_RULES_SUPPORTED,
   INSPECTION_LABELS,
   inspectRecordText,
   type InspectionIssue,
@@ -49,6 +50,8 @@ type CheckRecord = {
   className: string;
   grade: string;
   subject: string;
+  /** 학급 내 동명이인을 구분하기 위한 학생 번호. 원본에 없으면 빈 문자열. */
+  number: string;
   name: string;
   text: string;
   sourceFile: string;
@@ -93,6 +96,8 @@ type DiffSegment = {
 };
 
 const PAGE_SIZE = 30;
+/** 유사도 비교 중 이 시간(ms)을 넘기면 화면 갱신을 위해 제어권을 넘긴다. */
+const YIELD_INTERVAL_MS = 50;
 const HEADER_TEXT = "세부능력 및 특기사항";
 const ACCEPTED_EXTENSIONS = [".xls", ".xlsx", ".xlsm", ".xlsb"];
 const INSPECTION_TYPES: InspectionIssueType[] = [
@@ -125,6 +130,12 @@ function normalizeHeader(value: string) {
   return value.replace(/\s+/g, "").replace(/[()]/g, "");
 }
 
+/** 빈 행이나 짧은 행이 섞여 있어도 항상 같은 길이의 문자열 배열을 돌려준다. */
+function rowCells(rows: unknown[][], rowIndex: number, length: number) {
+  const row = rows[rowIndex] ?? [];
+  return Array.from({ length }, (_, column) => cellText(row[column]));
+}
+
 function findHeaderIndex(headers: string[], candidates: string[]) {
   return headers.findIndex((header) => {
     const normalized = normalizeHeader(header);
@@ -143,8 +154,8 @@ function gradeFromClass(value: string) {
 }
 
 function preprocessRows(rows: unknown[][], sourceFile: string): SourceRow[] {
-  const prepared: SourceRow[] = rows.map((row, index) => ({
-    cells: ["", ...Array.from({ length: 6 }, (_, column) => cellText(row[column]))],
+  const prepared: SourceRow[] = rows.map((_, index) => ({
+    cells: ["", ...rowCells(rows, index, 6)],
     sourceFile,
     sourceRow: index + 1,
   }));
@@ -246,8 +257,8 @@ const KNOWN_SUBJECTS = new Set([
 ]);
 
 function isNeisExport(rows: unknown[][]) {
-  return rows.some((row) => {
-    const values = row.slice(0, 4).map(cellText);
+  return rows.some((_, rowIndex) => {
+    const values = rowCells(rows, rowIndex, 4);
     return (
       normalizeHeader(values[0]).includes("번호") &&
       normalizeHeader(values[1]).includes("성명") &&
@@ -267,8 +278,8 @@ function subjectNamesFromRows(rows: unknown[][]) {
   const candidatePattern =
     /(?:^|[.!?]\s+|\([12]학기\)\s*)([가-힣A-Za-z][가-힣A-Za-z0-9· ]{0,24}):\s*/g;
 
-  for (const row of rows) {
-    const text = cellText(row[3]);
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const text = rowCells(rows, rowIndex, 4)[3];
     for (const match of text.matchAll(candidatePattern)) {
       const candidate = cleanVisibleText(match[1]);
       if (!candidate || /\d/.test(candidate) || candidate.endsWith("에서")) continue;
@@ -341,8 +352,8 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
     }
   };
 
-  rows.forEach((rawRow, rowIndex) => {
-    const row = Array.from({ length: 12 }, (_, column) => cellText(rawRow[column]));
+  rows.forEach((_, rowIndex) => {
+    const row = rowCells(rows, rowIndex, 12);
     const firstCell = row[0];
     const detail = cleanVisibleText(row[3]);
 
@@ -401,6 +412,7 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
         className: record.className,
         grade: record.grade,
         subject: record.subject,
+        number: record.number,
         name: record.name,
         text: record.text,
         sourceFile,
@@ -435,6 +447,7 @@ function makeCreativeCheckRecords(rows: unknown[][], sourceFile: string): CheckR
       className: record.className,
       grade: record.grade,
       subject: record.activity,
+      number: record.number,
       name: record.name,
       text: record.text,
       sourceFile,
@@ -465,7 +478,16 @@ function mergeCheckRecords(records: CheckRecord[]) {
   const merged = new Map<string, CheckRecord>();
 
   for (const record of records) {
-    const key = [record.recordType, record.className, record.grade, record.subject, record.name].join("|");
+    // 학생 번호를 반드시 포함한다. 번호가 빠지면 같은 학급·과목의 동명이인이 한 건으로
+    // 합쳐져, 두 사람의 기록이 완전히 같아도 `완전 일치`로 잡히지 않는다.
+    const key = [
+      record.recordType,
+      record.className,
+      record.grade,
+      record.subject,
+      record.number,
+      record.name,
+    ].join("|");
     const existing = merged.get(key);
     if (existing) {
       if (!existing.text.includes(record.text)) {
@@ -528,6 +550,7 @@ function makeRecords(sourceRows: SourceRow[]) {
         (gradeIndex >= 0 ? cells[gradeIndex] : "") || gradeFromClass(className) || cells[2];
       const subject = (subjectIndex >= 0 ? cells[subjectIndex] : "") || cells[4] || "과목 미상";
       const name = (nameIndex >= 0 ? cells[nameIndex] : "") || cells[5] || "이름 미상";
+      const numberCandidate = cleanVisibleText(cells[1] ?? "");
       const text = cells[6];
       const normalizedText = normalizeText(text);
 
@@ -536,6 +559,7 @@ function makeRecords(sourceRows: SourceRow[]) {
         className: className || "학급 미상",
         grade: cleanVisibleText(grade) || "학년 미상",
         subject: cleanVisibleText(subject) || "과목 미상",
+        number: /^\d+$/.test(numberCandidate) ? numberCandidate : "",
         name: cleanVisibleText(name) || "이름 미상",
         text,
         sourceFile: row.sourceFile,
@@ -576,6 +600,10 @@ async function analyzeSimilarity(
 
   const analyzed = records.map((record) => ({ ...record }));
 
+  // 큰 파일에서도 브라우저가 멈춘 것처럼 보이지 않도록, 고정된 건수마다가 아니라
+  // 경과 시간 기준으로 제어권을 넘긴다. 유사도 계산 자체는 바꾸지 않는다.
+  let lastYield = performance.now();
+
   for (let index = 0; index < analyzed.length; index += 1) {
     const record = analyzed[index];
     const exactMatches = exactGroups.get(record.normalizedText) ?? [];
@@ -610,9 +638,11 @@ async function analyzeSimilarity(
       record.matchText = analyzed[bestIndex].text;
     }
 
-    if (index % 40 === 0 || index === analyzed.length - 1) {
+    const isLast = index === analyzed.length - 1;
+    if (isLast || performance.now() - lastYield >= YIELD_INTERVAL_MS) {
       onProgress(Math.round(((index + 1) / Math.max(1, analyzed.length)) * 100));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      lastYield = performance.now();
     }
   }
 
@@ -622,7 +652,10 @@ async function analyzeSimilarity(
 function riskStatus(record: CheckRecord, threshold: number): RiskStatus {
   if (record.exactGroupSize > 1 || record.similarity >= 0.9995) return "exact";
   if (record.similarity >= threshold) return "high";
-  if (record.issues.length || record.similarity >= Math.max(0.45, threshold - 0.2)) return "review";
+  // `~`(기간), `→`(과정)는 세특에 매우 흔해, 특수기호만으로 위험도를 올리면 대부분의
+  // 기록이 `확인 필요`가 되어 등급이 의미를 잃는다. 특수기호는 전용 필터로만 찾는다.
+  const meaningfulIssue = record.issues.some((issue) => issue.type !== "symbol");
+  if (meaningfulIssue || record.similarity >= Math.max(0.45, threshold - 0.2)) return "review";
   return "normal";
 }
 
@@ -653,17 +686,19 @@ function makeDemoRecords(): CheckRecord[] {
 
   return samples.map((sample, index) => {
     const text = sample[4];
+    const number = `${index + 1}`;
     const normalizedText = normalizeText(text);
     return {
       id: `demo-${index}`,
       className: sample[0],
       grade: sample[1],
       subject: sample[2],
+      number,
       name: sample[3],
       text,
       sourceFile: "익명 예시 자료.xlsx",
       sourceRow: index + 5,
-      rawCells: [sample[0], "", sample[1], "", sample[2], sample[3], text],
+      rawCells: [sample[0], number, sample[1], "", sample[2], sample[3], text],
       normalizedText,
       tokens: [...new Set(normalizedText.split(" ").filter(Boolean))],
       similarity: 0,
@@ -1293,7 +1328,7 @@ export default function Home() {
     XLSX.utils.book_append_sheet(workbook, checkSheet, "종합점검");
     XLSX.utils.book_append_sheet(workbook, summarySheet, "분석자료");
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    XLSX.writeFile(workbook, `학교생활기록부_종합점검결과_${date}.xlsx`, { compression: true });
+    XLSX.writeFile(workbook, `RecordLENS_종합점검결과_${date}.xlsx`, { compression: true });
   }
 
   function exportHtmlReport() {
@@ -1449,7 +1484,7 @@ export default function Home() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>학교생활기록부 종합점검 결과 · ${escapeHtml(generatedAt)}</title>
+  <title>Record LENS 종합점검 결과 · ${escapeHtml(generatedAt)}</title>
   <style>
     :root { color-scheme:light; --navy:#15365d; --navy-deep:#102d50; --teal:#12998b; --teal-dark:#0f766e; --ink:#172b45; --ink-soft:#607086; --line:#dce4ea; --danger:#d85050; --danger-soft:#fff0ee; --warning:#d1841d; --warning-soft:#fff6e7; --review:#7a60b3; --review-soft:#f4efff; --mint:#e6f7f2; }
     * { box-sizing:border-box; }
@@ -1603,7 +1638,7 @@ export default function Home() {
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">✓</span><strong>학교생활기록부 종합점검기</strong><small>2026 기재요령 기반 보조 점검</small></div>
+    <div class="brand"><span class="brand-mark">✓</span><strong>Record LENS</strong><small>학교생활기록부 종합점검 · 2026 기재요령 기반</small></div>
     <span>저장된 결과 파일 · 학생 기록을 안전하게 보관해 주세요</span>
   </header>
   <main class="report-main">
@@ -1670,7 +1705,7 @@ export default function Home() {
     </section>
     <div class="report-notice">자카드 유사도는 전체 고유 단어의 교집합과 합집합을 비교합니다. 기재요령 점검은 2026 학교생활기록부 기재요령 p.18-19, p.30, p.61, p.82의 주요 기준을 바탕으로 한 보조 탐지이므로 원문과 허용 예외를 직접 확인하세요.</div>
   </main>
-  <footer class="site-footer"><span>학교생활기록부 종합점검기</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
+  <footer class="site-footer"><span>Record LENS · 학교생활기록부 종합점검</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
   ${comparisonDialogs}
 </body>
 </html>`;
@@ -1678,7 +1713,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `학교생활기록부_종합점검결과화면_${date}.html`;
+    anchor.download = `RecordLENS_종합점검결과화면_${date}.html`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -1695,14 +1730,14 @@ export default function Home() {
           className="brand"
           type="button"
           onClick={reset}
-          aria-label="학교생활기록부 종합점검 홈"
+          aria-label="Record LENS 홈"
         >
           <span className="brand-mark">
             <FileCheck2 size={21} strokeWidth={2.2} />
           </span>
           <span>
-            <strong>학생부 종합점검</strong>
-            <small>2026 기재요령 기반</small>
+            <strong>Record LENS</strong>
+            <small>학교생활기록부 종합점검</small>
           </span>
         </button>
         <div className="privacy-badge">
@@ -2077,6 +2112,12 @@ export default function Home() {
               자동 탐지는 확인이 필요한 후보를 찾는 기능입니다. 문맥, 허용 예외, 고유명사
               여부는 기재요령 원문과 대조하여 최종 판단해 주세요.
             </p>
+            {!ENTITY_RULES_SUPPORTED && (
+              <p className="audit-disclaimer" role="alert">
+                이 브라우저는 기관명·상호명 탐지에 필요한 기능을 지원하지 않아 해당 두 항목은
+                건너뛰었습니다. 최신 브라우저(iOS 16.4 이상)에서 다시 확인해 주세요.
+              </p>
+            )}
           </section>
 
           <section className="results-panel" id="results">
@@ -2275,7 +2316,7 @@ export default function Home() {
       )}
 
       <footer>
-        <span>학교생활기록부 종합점검기</span>
+        <span>Record LENS · 학교생활기록부 종합점검</span>
         <span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span>
       </footer>
 

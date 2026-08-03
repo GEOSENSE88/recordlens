@@ -39,3 +39,45 @@ test("uses concrete proper names instead of broad generic institution and busine
   assert.equal(matches.includes("애플"), true);
   assert.equal(matches.includes("KBS 방송국") || matches.includes("KBS"), true);
 });
+
+test("reports the exact source span so highlighting is not shifted", () => {
+  const text = "학생은 매우 매우 성실하게 참여함.";
+  for (const issue of inspectRecordText(text)) {
+    assert.equal(
+      text.slice(issue.index, issue.index + issue.match.length),
+      issue.match,
+      `${issue.label} 지적 위치가 원문과 어긋납니다.`,
+    );
+  }
+  assert.equal(
+    inspectRecordText(text).some((issue) => issue.match === "매우 매우"),
+    true,
+  );
+});
+
+test("keeps award wording out of unrelated compounds", () => {
+  assert.equal(
+    inspectRecordText("결과가 우수상태로 유지됨.").some((issue) => issue.type === "prohibited"),
+    false,
+  );
+  for (const text of ["교내 대회에서 우수상을 받음.", "우수상 수상 사실을 기록함."]) {
+    assert.equal(
+      inspectRecordText(text).some((issue) => issue.type === "prohibited"),
+      true,
+      `${text} 에서 대회·수상 지적이 사라졌습니다.`,
+    );
+  }
+});
+
+test("never drops a prohibited-word finding behind a wall of symbols", () => {
+  const noisy = `${Array.from({ length: 40 }, (_, index) => `★${index}`).join(" ")} 토익 점수를 취득함.`;
+  const issues = inspectRecordText(noisy);
+  assert.equal(
+    issues.some((issue) => issue.type === "prohibited"),
+    true,
+  );
+  assert.equal(
+    issues.filter((issue) => issue.type === "symbol").length <= 10,
+    true,
+  );
+});

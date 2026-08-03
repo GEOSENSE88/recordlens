@@ -39,12 +39,18 @@ function activityLabel(value: string) {
   return ACTIVITY_NAMES.get(normalizeHeader(value)) ?? "";
 }
 
+/** 빈 행이나 짧은 행이 섞여 있어도 항상 같은 길이의 문자열 배열을 돌려준다. */
+function rowCells(rows: unknown[][], rowIndex: number, length: number) {
+  const row = rows[rowIndex] ?? [];
+  return Array.from({ length }, (_, column) => cellText(row[column]));
+}
+
 export function isCreativeActivityExport(rows: unknown[][]) {
-  const hasTitle = rows.some((row) =>
-    row.slice(0, 6).some((cell) => normalizeHeader(cellText(cell)).includes("창의적체험활동상황")),
+  const hasTitle = rows.some((_, rowIndex) =>
+    rowCells(rows, rowIndex, 6).some((cell) => normalizeHeader(cell).includes("창의적체험활동상황")),
   );
-  const hasHeader = rows.some((row) => {
-    const values = row.slice(0, 6).map((cell) => normalizeHeader(cellText(cell)));
+  const hasHeader = rows.some((_, rowIndex) => {
+    const values = rowCells(rows, rowIndex, 6).map(normalizeHeader);
     return (
       values[0].includes("번호") &&
       values[1].includes("성명") &&
@@ -64,7 +70,7 @@ export function parseCreativeActivityRows(rows: unknown[][]): CreativeActivityRe
   let currentActivity = "";
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = Array.from({ length: 12 }, (_, column) => cellText(rows[rowIndex][column]));
+    const row = rowCells(rows, rowIndex, 12);
     const firstCell = cleanText(row[0]);
 
     if (/^\d+\s*학년\s*\d+\s*반/.test(firstCell)) {
