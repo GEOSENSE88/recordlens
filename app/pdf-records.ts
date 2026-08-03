@@ -30,8 +30,33 @@ type TextItem = { str: string; transform: number[] };
 /** 쪽 맨 아래 워터마크: `산남고등학교/2026.02.13 14:26/172.18.***.116/홍길동` */
 const WATERMARK = /\d{4}\.\d{2}\.\d{2}\s+\d{1,2}:\d{2}\/[\d.*]+\//;
 
+/**
+ * 워터마크 바로 위의 바닥글: `산남고등학교 2026년 2월 13일 5/14 반 1 번호 2 성명 홍길동`
+ * 워터마크와 생김새가 달라 따로 걸러야 한다. 이걸 놓치면 학교 이름이 본문에 섞여
+ * 기록마다 기관명으로 잡힌다.
+ */
+const PAGE_FOOTER = /\d+\s*\/\s*\d+\s*반\s*\d+\s*번\s*호\s*\d+\s*성\s*명/;
+
 /** 쪽마다 반복되는 표 머리글 */
 const SUBJECT_TABLE_HEADER = /^과\s*목\s*세\s*부\s*능\s*력\s*(및)?\s*특\s*기\s*사\s*항/;
+
+/**
+ * 성적표 머리글. 교과학습발달상황 안에서 세특 표와 성적표가 번갈아 나오므로,
+ * 이 줄을 만나면 세특 표가 다시 시작할 때까지 수집을 멈춘다.
+ * 놓치면 `원점수`, `석차등급` 이 본문에 섞여 기재금지어로 잡힌다.
+ *
+ * 실제 파일에서 확인한 머리글
+ *   학기 교과 과목 학점수 석차등급 비고
+ *   학기 교과 과목 원점수/과목평균 비고
+ *   학년 학기 세분류 이수시간 원점수 성취도 비고
+ *   원점수/과목평균성취도
+ *   학점성취도성취도별
+ *
+ * 낱말이 아니라 줄이 시작하는 모양으로 판정한다. `학습 성취도는 다소 아쉬웠으나`
+ * 처럼 본문에 정상적으로 나오는 표현을 성적표로 오인하면 안 되기 때문이다.
+ */
+const GRADES_TABLE_HEADER =
+  /^학\s*기\s*교\s*과|^학\s*년\s*학\s*기|^원\s*점\s*수\s*\/|^학\s*점\s*성\s*취\s*도/;
 
 /** 세특 구간이 끝나는 지점 */
 const SECTION_END = /독\s*서\s*활\s*동\s*상\s*황|행\s*동\s*특\s*성\s*(및)?\s*종\s*합\s*의\s*견/;
@@ -48,10 +73,37 @@ function collapse(value: string) {
 /** 시험에서 쓰는 판별기. 어떤 줄을 버리고 어디서 자르는지 한곳에서 관리한다. */
 export const PDF_LINE_RULES = {
   isWatermark: (line: string) => WATERMARK.test(line),
+  isPageFooter: (line: string) => PAGE_FOOTER.test(line),
   isSubjectTableHeader: (line: string) => SUBJECT_TABLE_HEADER.test(line),
+  isGradesTableHeader: (line: string) => GRADES_TABLE_HEADER.test(line),
   isSectionEnd: (line: string) => SECTION_END.test(line),
   isPersonalSection: (line: string) => PERSONAL_SECTION.test(line),
 };
+
+/**
+ * 한 쪽에서 세특 본문에 해당하는 줄만 골라낸다.
+ * 세특 표 머리글에서 켜고, 성적표 머리글이나 다음 항목 제목에서 끈다.
+ * 한 쪽 안에서 세특 표와 성적표가 번갈아 나올 수 있어 상태를 오가며 훑는다.
+ */
+export function collectSubjectLines(lines: string[]) {
+  const collected: string[] = [];
+  let collecting = false;
+
+  for (const line of lines) {
+    if (SUBJECT_TABLE_HEADER.test(line)) {
+      collecting = true;
+      continue;
+    }
+    if (SECTION_END.test(line)) break;
+    if (GRADES_TABLE_HEADER.test(line)) {
+      collecting = false;
+      continue;
+    }
+    if (collecting) collected.push(line);
+  }
+
+  return collected;
+}
 
 /**
  * PDF는 글자를 그린 순서대로 담고 있어 표가 뒤섞인다.
@@ -104,9 +156,11 @@ export function joinWrappedLines(lines: string[]) {
 
 type PageLines = { page: number; lines: string[] };
 
-/** 워터마크와 반복 머리글을 걷어낸 쪽별 줄 목록을 만든다. */
+/** 쪽 아래 워터마크와 바닥글을 걷어낸 줄 목록을 만든다. */
 function cleanPage(page: number, items: TextItem[]): PageLines {
-  const lines = linesFromItems(items).filter((line) => !WATERMARK.test(line));
+  const lines = linesFromItems(items).filter(
+    (line) => !WATERMARK.test(line) && !PAGE_FOOTER.test(line),
+  );
   return { page, lines };
 }
 
@@ -235,15 +289,10 @@ export async function parseStudentRecordPdf(
       }
       if (!current) continue;
 
-      // 세특 쪽은 언제나 표 머리글로 시작한다. 머리글이 없으면 다른 항목이다.
-      const headerAt = lines.findIndex((line) => SUBJECT_TABLE_HEADER.test(line));
-      if (headerAt < 0) continue;
-
-      for (const line of lines.slice(headerAt + 1)) {
-        if (SECTION_END.test(line)) break;
-        current.lines.push(line);
-      }
-      if (!current.page || current.lines.length === 0) current.page = pageNumber;
+      const collected = collectSubjectLines(lines);
+      if (!collected.length) continue;
+      current.lines.push(...collected);
+      if (!current.page) current.page = pageNumber;
 
       if (onProgress) await onProgress(pageNumber, doc.numPages);
     }

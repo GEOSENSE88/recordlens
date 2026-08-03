@@ -4,18 +4,63 @@ import test from "node:test";
 import {
   PDF_LINE_RULES,
   classFromFileName,
+  collectSubjectLines,
   joinWrappedLines,
   readStudentHeader,
   resolveClass,
 } from "../app/pdf-records.ts";
 
-test("drops the footer watermark that every page carries", () => {
+test("drops both footer lines that every page carries", () => {
   assert.equal(
     PDF_LINE_RULES.isWatermark("산남고등학교/2026.02.13 14:26/172.18.***.116/홍길동"),
     true,
   );
+  // 워터마크 위에 학교명과 반·번호·성명이 든 바닥글이 한 줄 더 있다.
+  // 이걸 놓치면 학교 이름이 기록마다 섞여 기관명으로 잡힌다.
+  assert.equal(
+    PDF_LINE_RULES.isPageFooter("산남고등학교 2026년 2월 13일 6/14 반 1 번호 2 성명 홍길동"),
+    true,
+  );
   // 본문에 날짜가 나온다고 워터마크로 보면 안 된다.
   assert.equal(PDF_LINE_RULES.isWatermark("2024.07.15. 교과 융합 수업에 참여함."), false);
+  assert.equal(PDF_LINE_RULES.isPageFooter("2024.07.15. 교과 융합 수업에 참여함."), false);
+});
+
+test("tells a grades table header from ordinary wording", () => {
+  // 실제 파일에서 확인한 성적표 머리글
+  for (const header of [
+    "학기 교과 과목 학점수 석차등급 비고",
+    "학기 교과 과목 원점수/과목평균 비고",
+    "학년 학기 세분류 이수시간 원점수 성취도 비고",
+    "원점수/과목평균성취도",
+    "학점성취도성취도별",
+  ]) {
+    assert.equal(PDF_LINE_RULES.isGradesTableHeader(header), true, `${header} 를 못 잡았습니다.`);
+  }
+  // 본문에 정상적으로 나오는 표현을 성적표로 오인하면 안 된다.
+  assert.equal(
+    PDF_LINE_RULES.isGradesTableHeader("전반적으로 학습 성취도는 다소 아쉬웠으나 꾸준히 참여함."),
+    false,
+  );
+});
+
+test("keeps only the 세특 body when grade tables are mixed in", () => {
+  // 교과학습발달상황 안에서는 세특 표와 성적표가 번갈아 나온다.
+  const lines = [
+    "과 목 세부능력 및 특기사항",
+    "국어: 토론 활동에 성실히 참여함.",
+    "학기 교과 과목 학점수 석차등급 비고",
+    "1 국어 문학 4 3 ",
+    "원점수/과목평균성취도",
+    "과 목 세부능력 및 특기사항",
+    "수학: 이차함수를 탐구함.",
+    "행동특성 및 종합의견",
+    "여기부터는 다른 항목이라 담지 않는다.",
+  ];
+  assert.deepEqual(collectSubjectLines(lines), [
+    "국어: 토론 활동에 성실히 참여함.",
+    "수학: 이차함수를 탐구함.",
+  ]);
 });
 
 test("recognises the repeated subject table header and the end of the section", () => {
