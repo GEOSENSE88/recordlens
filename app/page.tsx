@@ -11,6 +11,7 @@ import {
   Download,
   FileCheck2,
   FileText,
+  HelpCircle,
   Files,
   FileSpreadsheet,
   Info,
@@ -28,7 +29,7 @@ import {
   isCreativeActivityExport,
   parseCreativeActivityRows,
 } from "./creative-records";
-import { BRAND_ICON_SRC } from "./brand-icon";
+import { BRAND_ICON_SRC, NEIS_GUIDE_SRC } from "./brand-icon";
 import { REPORT_SCRIPT } from "./report-script";
 import { splitSubjectSegments, subjectNamesFromTexts } from "./subject-records";
 import {
@@ -1796,7 +1797,81 @@ export default function Home() {
                 익명 예시 자료로 먼저 둘러보기
                 <ArrowRight size={16} />
               </button>
+
+              <a className="guide-link" href="#neis-guide">
+                <HelpCircle size={15} />
+                반별 엑셀 파일은 어디서 받나요?
+              </a>
             </div>
+          </section>
+
+          <section className="guide-section" id="neis-guide">
+            <div className="guide-copy">
+              <div className="eyebrow">
+                <span />
+                파일 준비
+              </div>
+              <h2>나이스에서 반별 세특 엑셀 받기</h2>
+              <p>
+                나이스에 교과담임 또는 부서장 권한으로 접속한 뒤, 아래 순서로 들어가
+                <strong> XLS data</strong> 형식으로 저장하면 됩니다. 반별로 저장한 파일을
+                한꺼번에 올리면 자동으로 합쳐 점검합니다.
+              </p>
+            </div>
+            <ol className="guide-steps">
+                <li>
+                  <span>1</span>
+                  <div>
+                    <strong>학교생활기록부</strong>
+                    <small>왼쪽 메뉴에서 선택</small>
+                  </div>
+                </li>
+                <li>
+                  <span>2</span>
+                  <div>
+                    <strong>학생부 항목별 조회</strong>
+                    <small>상단 단계 중 세 번째</small>
+                  </div>
+                </li>
+                <li>
+                  <span>3</span>
+                  <div>
+                    <strong>학년도·학년·반 선택 후 조회</strong>
+                    <small>반을 바꿔 가며 반복</small>
+                  </div>
+                </li>
+                <li>
+                  <span>4</span>
+                  <div>
+                    <strong>교과학습발달상황 › 세부능력및특기사항</strong>
+                    <small>창의적체험활동 특기사항도 같은 방법으로</small>
+                  </div>
+                </li>
+                <li>
+                  <span>5</span>
+                  <div>
+                    <strong>저장 아이콘 › XLS data</strong>
+                    <small>XLS가 아니라 XLS data로 저장해야 합니다</small>
+                  </div>
+                </li>
+            </ol>
+            <figure className="guide-figure">
+              {/* next/image는 GitHub Pages 정적 빌드에서 쓸 수 없어 순수 img를 쓴다. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={NEIS_GUIDE_SRC}
+                alt="나이스 학교생활기록부 화면에서 학생부 항목별 조회로 들어가 세부능력및특기사항을 고른 뒤, 저장 메뉴에서 XLS data를 선택하는 모습"
+                width={1500}
+                height={726}
+                loading="lazy"
+              />
+              <figcaption>학교명·교사명·학생 이름과 기록 내용은 가려 두었습니다.</figcaption>
+            </figure>
+            <p className="guide-note">
+              <ShieldCheck size={16} />
+              내려받은 파일에는 학생 이름과 기록이 그대로 들어 있습니다. 점검이 끝나면 파일을
+              안전하게 관리해 주세요.
+            </p>
           </section>
 
           <section className="workflow-section">

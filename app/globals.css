@@ -509,6 +509,145 @@ input[type="range"] {
   color: var(--brand-800);
 }
 
+/* 나이스에서 파일 받는 방법 안내 */
+.guide-link {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 11px;
+  color: var(--brand-800);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.guide-link:hover {
+  background: var(--brand-25);
+}
+
+.guide-section {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 24px 0 84px;
+  scroll-margin-top: 24px;
+}
+
+.guide-copy {
+  max-width: 720px;
+}
+
+.guide-copy h2 {
+  margin: 14px 0;
+  color: var(--brand-950);
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.25;
+}
+
+.guide-copy > p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: var(--leading-body);
+}
+
+.guide-copy > p strong {
+  color: var(--brand-800);
+}
+
+.guide-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 26px 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-steps li {
+  display: grid;
+  grid-template-rows: 26px auto;
+  gap: 10px;
+  align-content: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: white;
+}
+
+.guide-steps li > span {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--brand-900);
+  color: white;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* 한국어는 낱말 중간에서 줄이 바뀌면 읽기 어렵다. */
+.guide-steps strong {
+  display: block;
+  font-size: 15px;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.guide-steps small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.guide-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 16px 0 0;
+  padding: 13px 15px;
+  border: 1px solid var(--brand-100);
+  border-radius: 13px;
+  background: var(--brand-25);
+  color: var(--brand-800);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.guide-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.guide-figure {
+  margin: 0;
+}
+
+.guide-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.guide-figure figcaption {
+  margin-top: 11px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: right;
+}
+
 .workflow-section {
   padding: 82px max(20px, calc((100vw - 1180px) / 2)) 96px;
   background: var(--brand-950);
@@ -1947,6 +2086,10 @@ footer {
   .hero {
     grid-template-columns: 1fr;
     gap: 42px;
+  }
+
+  .guide-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .hero-copy {
