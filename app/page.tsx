@@ -29,6 +29,7 @@ import {
   parseCreativeActivityRows,
 } from "./creative-records";
 import { BRAND_ICON_SRC } from "./brand-icon";
+import { splitSubjectSegments, subjectNamesFromTexts } from "./subject-records";
 import {
   ENTITY_RULES_SUPPORTED,
   INSPECTION_LABELS,
@@ -107,6 +108,7 @@ const INSPECTION_TYPES: InspectionIssueType[] = [
   "prohibited",
   "institution",
   "business",
+  "person",
 ];
 
 function cellText(value: unknown) {
@@ -215,48 +217,6 @@ function preprocessRows(rows: unknown[][], sourceFile: string): SourceRow[] {
   return prepared;
 }
 
-const KNOWN_SUBJECTS = new Set([
-  "국어",
-  "수학",
-  "영어",
-  "한국사",
-  "통합사회",
-  "통합과학",
-  "과학탐구실험",
-  "기술·가정",
-  "정보",
-  "진로와 직업",
-  "독서",
-  "문학",
-  "체육",
-  "음악",
-  "미술",
-  "운동과 건강",
-  "식품안전과 건강",
-  "고전 읽기",
-  "생활과 윤리",
-  "생활과 과학",
-  "음악 감상과 비평",
-  "영어권 문화",
-  "정치와 법",
-  "사회문제 탐구",
-  "세계지리",
-  "미술 창작",
-  "세계 문제와 미래 사회",
-  "세계사",
-  "심화 국어",
-  "경제",
-  "기하",
-  "심리학",
-  "생태와 환경",
-  "빅데이터 분석",
-  "호텔외식조리실무",
-  "생명과학 실험",
-  "화학 실험",
-  "마케팅과 광고",
-  "생활과 한문",
-]);
-
 function isNeisExport(rows: unknown[][]) {
   return rows.some((_, rowIndex) => {
     const values = rowCells(rows, rowIndex, 4);
@@ -269,48 +229,9 @@ function isNeisExport(rows: unknown[][]) {
   });
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function subjectNamesFromRows(rows: unknown[][]) {
-  const counts = new Map<string, number>();
-  const atCellStart = new Set<string>();
-  const candidatePattern =
-    /(?:^|[.!?]\s+|\([12]학기\)\s*)([가-힣A-Za-z][가-힣A-Za-z0-9· ]{0,24}):\s*/g;
-
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const text = rowCells(rows, rowIndex, 4)[3];
-    for (const match of text.matchAll(candidatePattern)) {
-      const candidate = cleanVisibleText(match[1]);
-      if (!candidate || /\d/.test(candidate) || candidate.endsWith("에서")) continue;
-      counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
-      if (
-        match.index === 0 ||
-        /^\([12]학기\)\s*/.test(text) ||
-        text.slice(0, match.index).trim() === ""
-      ) {
-        atCellStart.add(candidate);
-      }
-    }
-  }
-
-  return [...new Set([...KNOWN_SUBJECTS, ...counts.keys()])]
-    .filter(
-      (candidate) =>
-        KNOWN_SUBJECTS.has(candidate) ||
-        atCellStart.has(candidate) ||
-        (counts.get(candidate) ?? 0) >= 2,
-    )
-    .sort((a, b) => b.length - a.length);
-}
-
 function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
-  const subjects = subjectNamesFromRows(rows);
-  const subjectAlternation = subjects.map(escapeRegExp).join("|");
-  const subjectPattern = new RegExp(
-    `(?:\\([12]학기\\)\\s*)?(${subjectAlternation}):\\s*`,
-    "g",
+  const subjects = subjectNamesFromTexts(
+    rows.map((_, rowIndex) => rowCells(rows, rowIndex, 4)[3]),
   );
   const records = new Map<
     string,
@@ -384,24 +305,18 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
     const gradeValue = cleanVisibleText(row[2]);
     if (/^[1-3]$/.test(gradeValue)) currentGrade = `${gradeValue}학년`;
 
-    subjectPattern.lastIndex = 0;
-    const matches = [...detail.matchAll(subjectPattern)];
-    if (!matches.length) {
+    const { leading, segments } = splitSubjectSegments(detail, subjects);
+    if (!segments.length) {
       appendChunk(currentSubject, detail, rowIndex + 1, false);
       return;
     }
 
-    const leading = detail.slice(0, matches[0].index).trim();
     if (leading) appendChunk(currentSubject, leading, rowIndex + 1, false);
 
-    matches.forEach((match, matchIndex) => {
-      const subject = cleanVisibleText(match[1]);
-      const start = (match.index ?? 0) + match[0].length;
-      const end = matches[matchIndex + 1]?.index ?? detail.length;
-      const chunk = detail.slice(start, end);
-      currentSubject = subject;
-      appendChunk(subject, chunk, rowIndex + 1, true);
-    });
+    for (const segment of segments) {
+      currentSubject = segment.subject;
+      appendChunk(segment.subject, segment.body, rowIndex + 1, true);
+    }
   });
 
   return [...records.values()]
@@ -941,6 +856,28 @@ function InspectionHighlightedText({
   );
 }
 
+/**
+ * 저장한 HTML은 인터넷 없이 열리므로 로고를 파일 안에 직접 담아야 한다.
+ * 이미 화면에 떠 있는 이미지를 캔버스로 축소해 data URI로 바꾼다.
+ * 어떤 이유로든 실패하면 글자 로고로 물러난다.
+ */
+function brandMarkDataUri(size = 72) {
+  if (typeof document === "undefined") return "";
+  const source = document.querySelector<HTMLImageElement>("img.brand-mark");
+  if (!source || !source.complete || !source.naturalWidth) return "";
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) return "";
+    context.drawImage(source, 0, 0, size, size);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return "";
+  }
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -1030,7 +967,7 @@ export default function Home() {
           }
           return accumulator;
         },
-        { typo: 0, symbol: 0, prohibited: 0, institution: 0, business: 0 } as Record<
+        { typo: 0, symbol: 0, prohibited: 0, institution: 0, business: 0, person: 0 } as Record<
           InspectionIssueType,
           number
         >,
@@ -1340,22 +1277,25 @@ export default function Home() {
         timeStyle: "short",
       }).format(new Date());
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    const orderedRecords = [...filteredRecords];
-    const currentRiskLabel = riskFilter === "all" ? "전체 위험도" : riskLabel(riskFilter);
-    const currentIssueLabel =
-      issueFilter === "all" ? "전체 점검항목" : INSPECTION_LABELS[issueFilter];
-    const currentSortLabel =
-      sortMode === "name"
-        ? "이름 순"
-        : sortMode === "subject"
-          ? `${categoryLabel} 순`
-          : "유사도 높은 순";
+    // 저장본은 화면의 현재 필터와 무관하게 모든 기록을 담는다.
+    // 걸러 보는 일은 저장된 파일 안에서 다시 할 수 있다.
+    const orderedRecords = [...records].sort(
+      (a, b) => b.similarity - a.similarity || a.name.localeCompare(b.name, "ko"),
+    );
     const checkedCount = counts.exact + counts.high + counts.review;
+    const brandIcon = brandMarkDataUri();
+    const brandMarkHtml = brandIcon
+      ? `<img class="brand-mark" src="${brandIcon}" alt="" width="34" height="34" />`
+      : '<span class="brand-mark">✓</span>';
     const reportRows = orderedRecords
       .map((record, index) => {
         const status = riskStatus(record, threshold);
+        const issueTypes = [...new Set(record.issues.map((issue) => issue.type))].join(" ");
+        const haystack = normalizeText(
+          `${record.name} ${record.className} ${record.subject} ${record.text} ${record.matchName}`,
+        );
         return `
-          <tr>
+          <tr data-row="${index}" data-status="${status}" data-issues="${escapeHtml(issueTypes)}" data-similarity="${record.similarity}" data-name="${escapeHtml(record.name)}" data-subject="${escapeHtml(record.subject)}" data-search="${escapeHtml(haystack)}">
             <td><span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span></td>
             <td><strong class="student-name">${escapeHtml(record.name)}</strong><span class="muted">${escapeHtml(record.className)}</span></td>
             <td><span class="subject-chip">${escapeHtml(record.subject)}</span></td>
@@ -1381,7 +1321,7 @@ export default function Home() {
             }</div></td>
             <td>${
               record.matchText || record.issues.length
-                ? `<a class="compare-button" href="#comparison-${index + 1}">상세 <b>›</b></a>`
+                ? `<a class="compare-button" href="#comparison-${index + 1}" data-open="${index + 1}">상세 <b>›</b></a>`
                 : '<span class="compare-button disabled">상세</span>'
             }</td>
           </tr>`;
@@ -1404,14 +1344,15 @@ export default function Home() {
           .join("");
         return `
           <section class="compare-dialog" id="comparison-${index + 1}" aria-label="기록 종합점검">
-            <a class="dialog-backdrop" href="#results" aria-label="상세 창 닫기"></a>
+            <a class="dialog-backdrop" href="#results" data-close="1" aria-label="상세 창 닫기"></a>
             <article class="dialog-sheet">
               <header class="dialog-header">
                 <div>
                   <span class="status-badge ${status}"><i></i>${escapeHtml(riskLabel(status))}</span>
-                  <h2>기록 종합점검</h2>
+                  <h2>${escapeHtml(record.name)} · ${escapeHtml(record.subject)}</h2>
+                  <small class="dialog-sub">${escapeHtml(record.className)}</small>
                 </div>
-                <a class="dialog-close" href="#results" aria-label="상세 창 닫기">×</a>
+                <a class="dialog-close" href="#results" data-close="1" aria-label="상세 창 닫기">×</a>
               </header>
               ${
                 issueItems
@@ -1473,7 +1414,7 @@ export default function Home() {
       )
       .join("");
     const issueSummaryItems = (
-      ["typo", "symbol", "prohibited", "institution", "business"] as InspectionIssueType[]
+      ["typo", "symbol", "prohibited", "institution", "business", "person"] as InspectionIssueType[]
     )
       .map(
         (type) =>
@@ -1494,6 +1435,7 @@ export default function Home() {
     .topbar { display:flex; align-items:center; justify-content:space-between; min-height:62px; padding:0 max(24px,calc((100% - 1180px)/2)); border-bottom:1px solid rgba(220,228,234,.85); background:rgba(255,255,255,.92); }
     .brand { display:grid; grid-template-columns:34px auto; column-gap:9px; align-items:center; }
     .brand-mark { display:grid; grid-row:1/3; width:34px; height:34px; place-items:center; border-radius:10px; background:var(--brand-900); color:white; font-weight:900; }
+    img.brand-mark { display:block; background:none; object-fit:cover; }
     .brand strong { align-self:end; font-size:15px; }
     .brand small { align-self:start; color:#3b7871; font-size:12px; }
     .topbar > span { color:#1c534d; font-size:13px; }
@@ -1547,7 +1489,7 @@ export default function Home() {
     .audit-panel header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:16px; }
     .audit-panel h2 { margin:5px 0 0; font-size:21px; }
     .audit-panel header p { margin:0; color:#2a655e; font-size:12px; }
-    .audit-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:9px; }
+    .audit-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:9px; }
     .audit-item { padding:14px; border:1px solid #e3f0ec; border-radius:12px; background:#ffffff; }
     .audit-item span { display:block; color:#1c534d; font-size:12px; font-weight:800; }
     .audit-item strong { display:inline-block; margin-top:5px; color:var(--brand-900); font-size:24px; }
@@ -1578,20 +1520,27 @@ export default function Home() {
     .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#14403b; font-size:13px; line-height:1.75; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
     .inspection-text-highlight { margin:0 1px; padding:1px 2px; border-radius:4px; background:#fbf1d9; color:#8f6410; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     .inspection-text-highlight.prohibited { background:#fdece6; color:#9c3822; font-weight:800; }
-    .inspection-text-highlight.institution,.inspection-text-highlight.business { background:#fbf1d9; color:#8f6410; font-weight:800; }
+    .inspection-text-highlight.institution,.inspection-text-highlight.business,.inspection-text-highlight.person { background:#fbf1d9; color:#8f6410; font-weight:800; }
     .inspection-text-highlight.typo,.inspection-text-highlight.symbol { background:#eaf0f9; color:#375075; font-weight:800; }
     .issue-pills { display:flex; align-items:flex-start; flex-direction:column; gap:4px; }
     .issue-pills span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:6px; background:#eaf0f9; color:#45638f; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
     .issue-pills span.prohibited { background:#fdece6; color:#b8442a; }
-    .issue-pills span.institution,.issue-pills span.business { background:#fbf1d9; color:#8f6410; }
+    .issue-pills span.institution,.issue-pills span.business,.issue-pills span.person { background:#fbf1d9; color:#8f6410; }
     .issue-pills small { color:#467d76; font-size:12px; }
     .compare-button { display:inline-flex; align-items:center; gap:3px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--brand-900); font-size:12px; font-weight:800; text-decoration:none; }
     .compare-button b { font-size:17px; } .compare-button.disabled { color:#467d76; }
-    .table-footer { padding:14px 24px; color:#2a655e; font-size:13px; text-align:right; }
+    .table-footer { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 24px; color:#2a655e; font-size:13px; }
+    .report-pager { display:inline-flex; align-items:center; gap:8px; }
+    .report-pager button { width:32px; height:32px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--brand-900); cursor:pointer; font-size:15px; font-weight:800; }
+    .report-pager button:disabled { color:var(--brand-200); cursor:default; }
+    .report-empty { padding:34px 24px; color:#2a655e; font-size:14px; text-align:center; }
+    .dialog-sub { display:block; margin-top:4px; color:#3b7871; font-size:12px; }
+    #report-search:focus, .snapshot-select:focus { outline:none; border-color:var(--brand-400); box-shadow:0 0 0 3px rgba(50,138,135,.25); }
     .report-notice { margin-top:16px; padding:15px 18px; border:1px solid #d5e8e2; border-radius:13px; background:#fdfcf7; color:#0f4a46; font-size:13px; }
     .site-footer { display:flex; justify-content:space-between; padding:22px max(24px,calc((100% - 1180px)/2)); border-top:1px solid var(--line); background:white; color:#3b7871; font-size:12px; }
     .compare-dialog { display:none; position:fixed; z-index:20; inset:0; place-items:center; padding:24px; }
-    .compare-dialog:target { display:grid; }
+    /* 자바스크립트로 여는 것이 기본이고, :target은 스크립트가 막힌 환경을 위한 대비책이다. */
+    .compare-dialog.is-open, .compare-dialog:target { display:grid; }
     .dialog-backdrop { position:absolute; inset:0; background:rgba(8,28,50,.58); }
     .dialog-sheet { position:relative; z-index:1; width:min(900px,100%); max-height:calc(100vh - 48px); overflow:auto; border-radius:20px; background:white; box-shadow:0 28px 80px rgba(7,27,49,.28); }
     .dialog-header { display:flex; align-items:flex-start; justify-content:space-between; padding:22px 25px; border-bottom:1px solid var(--line); }
@@ -1639,7 +1588,7 @@ export default function Home() {
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">✓</span><strong>Record LENS</strong><small>학교생활기록부 종합점검 · 2026 기재요령 기반</small></div>
+    <div class="brand">${brandMarkHtml}<strong>Record LENS</strong><small>학교생활기록부 종합점검 · 2026 기재요령 기반</small></div>
     <span>저장된 결과 파일 · 학생 기록을 안전하게 보관해 주세요</span>
   </header>
   <main class="report-main">
@@ -1688,26 +1637,165 @@ export default function Home() {
     </section>
     <section class="results-panel" id="results">
       <div class="results-heading">
-        <div><span class="section-kicker">상세 점검 결과</span><h2>기록별 비교 <em>${orderedRecords.length.toLocaleString("ko-KR")}</em></h2></div>
+        <div><span class="section-kicker">상세 점검 결과</span><h2>기록별 비교 <em id="visible-count">${orderedRecords.length.toLocaleString("ko-KR")}</em></h2></div>
         <div class="snapshot-controls">
-          <div class="snapshot-search">${search ? `검색: ${escapeHtml(search)}` : `이름, 학급, ${escapeHtml(categoryLabel)}, 내용 검색`}</div>
-          <div class="snapshot-select">${escapeHtml(currentRiskLabel)}⌄</div>
-          <div class="snapshot-select">${escapeHtml(currentIssueLabel)}⌄</div>
-          <div class="snapshot-select">${escapeHtml(currentSortLabel)}⌄</div>
+          <input id="report-search" class="snapshot-search" type="search" placeholder="이름, 학급, ${escapeHtml(categoryLabel)}, 내용 검색" aria-label="점검 결과 검색" />
+          <select id="report-risk" class="snapshot-select" aria-label="위험도 필터">
+            <option value="all">전체 위험도</option>
+            <option value="exact">완전 일치</option>
+            <option value="high">높은 유사도</option>
+            <option value="review">확인 필요</option>
+            <option value="normal">이상 없음</option>
+          </select>
+          <select id="report-issue" class="snapshot-select" aria-label="기재요령 점검항목 필터">
+            <option value="all">전체 점검항목</option>
+            ${INSPECTION_TYPES.map(
+              (type) => `<option value="${type}">${escapeHtml(INSPECTION_LABELS[type])}</option>`,
+            ).join("")}
+          </select>
+          <select id="report-sort" class="snapshot-select" aria-label="정렬 방법">
+            <option value="risk">유사도 높은 순</option>
+            <option value="name">이름 순</option>
+            <option value="subject">${escapeHtml(categoryLabel)} 순</option>
+          </select>
         </div>
       </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>점검 결과</th><th>학생 / 학급</th><th>${escapeHtml(categoryLabel)}</th><th>최대 유사도</th><th>${escapeHtml(contentLabel)}</th><th>기재요령 점검</th><th>상세</th></tr></thead>
-          <tbody>${reportRows || '<tr><td colspan="7">조건에 맞는 기록이 없습니다.</td></tr>'}</tbody>
+          <tbody id="report-body">${reportRows || '<tr><td colspan="7">조건에 맞는 기록이 없습니다.</td></tr>'}</tbody>
         </table>
+        <div id="report-empty" class="report-empty" hidden>조건에 맞는 기록이 없습니다. 검색어나 필터를 바꿔 보세요.</div>
       </div>
-      <div class="table-footer">현재 조건에 맞는 전체 ${orderedRecords.length.toLocaleString("ko-KR")}건을 저장했습니다.</div>
+      <div class="table-footer">
+        <span id="report-range">전체 ${orderedRecords.length.toLocaleString("ko-KR")}건</span>
+        <span class="report-pager">
+          <button type="button" id="report-prev" aria-label="이전 페이지">‹</button>
+          <span id="report-page">1 / 1</span>
+          <button type="button" id="report-next" aria-label="다음 페이지">›</button>
+        </span>
+      </div>
     </section>
     <div class="report-notice">자카드 유사도는 전체 고유 단어의 교집합과 합집합을 비교합니다. 기재요령 점검은 2026 학교생활기록부 기재요령 p.18-19, p.30, p.61, p.82의 주요 기준을 바탕으로 한 보조 탐지이므로 원문과 허용 예외를 직접 확인하세요.</div>
   </main>
   <footer class="site-footer"><span>Record LENS · 학교생활기록부 종합점검</span><span>원본: ${escapeHtml(sourceFiles.join(", "))}</span><span>학생부 기록의 최종 책임은 작성·확인자에게 있습니다.</span></footer>
   ${comparisonDialogs}
+  <script>
+  (function () {
+    // 저장본 안에서도 검색·필터·정렬·페이지 넘김과 상세 창을 그대로 쓸 수 있게 한다.
+    var PAGE_SIZE = ${PAGE_SIZE};
+    var body = document.getElementById("report-body");
+    if (!body) return;
+    var rows = Array.prototype.slice.call(body.querySelectorAll("tr[data-row]"));
+    if (!rows.length) return;
+
+    var searchInput = document.getElementById("report-search");
+    var riskSelect = document.getElementById("report-risk");
+    var issueSelect = document.getElementById("report-issue");
+    var sortSelect = document.getElementById("report-sort");
+    var rangeLabel = document.getElementById("report-range");
+    var pageLabel = document.getElementById("report-page");
+    var visibleCount = document.getElementById("visible-count");
+    var emptyNote = document.getElementById("report-empty");
+    var prevButton = document.getElementById("report-prev");
+    var nextButton = document.getElementById("report-next");
+    var page = 1;
+    var matched = rows;
+
+    // 앱의 normalizeText와 같은 방식으로 검색어를 다듬는다.
+    function normalize(value) {
+      return value
+        .toLocaleLowerCase("ko-KR")
+        .replace(/[.,!?()\\[\\]/\\-_&@#$%^]/g, " ")
+        .replace(/\\s+/g, " ")
+        .trim();
+    }
+
+    function compare(a, b) {
+      var mode = sortSelect ? sortSelect.value : "risk";
+      if (mode === "name") return a.getAttribute("data-name").localeCompare(b.getAttribute("data-name"), "ko");
+      if (mode === "subject") return a.getAttribute("data-subject").localeCompare(b.getAttribute("data-subject"), "ko");
+      var diff = Number(b.getAttribute("data-similarity")) - Number(a.getAttribute("data-similarity"));
+      return diff || a.getAttribute("data-name").localeCompare(b.getAttribute("data-name"), "ko");
+    }
+
+    function apply() {
+      var term = normalize(searchInput ? searchInput.value : "");
+      var risk = riskSelect ? riskSelect.value : "all";
+      var issue = issueSelect ? issueSelect.value : "all";
+
+      matched = rows.filter(function (row) {
+        if (risk !== "all" && row.getAttribute("data-status") !== risk) return false;
+        if (issue !== "all" && (" " + row.getAttribute("data-issues") + " ").indexOf(" " + issue + " ") < 0) return false;
+        if (!term) return true;
+        return row.getAttribute("data-search").indexOf(term) >= 0;
+      });
+      matched.sort(compare);
+
+      var pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
+      if (page > pages) page = pages;
+      var start = (page - 1) * PAGE_SIZE;
+      var shown = matched.slice(start, start + PAGE_SIZE);
+
+      rows.forEach(function (row) { row.hidden = true; });
+      shown.forEach(function (row) { row.hidden = false; body.appendChild(row); });
+
+      if (visibleCount) visibleCount.textContent = matched.length.toLocaleString("ko-KR");
+      if (pageLabel) pageLabel.textContent = page + " / " + pages;
+      if (rangeLabel) {
+        rangeLabel.textContent = matched.length
+          ? "전체 " + matched.length.toLocaleString("ko-KR") + "건 중 " + (start + 1) + "–" + (start + shown.length) + "건"
+          : "조건에 맞는 기록 없음";
+      }
+      if (emptyNote) emptyNote.hidden = matched.length > 0;
+      if (prevButton) prevButton.disabled = page <= 1;
+      if (nextButton) nextButton.disabled = page >= pages;
+    }
+
+    function reset() { page = 1; apply(); }
+
+    if (searchInput) searchInput.addEventListener("input", reset);
+    if (riskSelect) riskSelect.addEventListener("change", reset);
+    if (issueSelect) issueSelect.addEventListener("change", reset);
+    if (sortSelect) sortSelect.addEventListener("change", reset);
+    if (prevButton) prevButton.addEventListener("click", function () { if (page > 1) { page -= 1; apply(); } });
+    if (nextButton) nextButton.addEventListener("click", function () {
+      if (page < Math.max(1, Math.ceil(matched.length / PAGE_SIZE))) { page += 1; apply(); }
+    });
+
+    // 상세 창: 필터로 행이 숨겨져 있어도 열 수 있도록 자바스크립트로 직접 연다.
+    var openDialog = null;
+    function close() {
+      if (!openDialog) return;
+      openDialog.classList.remove("is-open");
+      openDialog = null;
+      document.body.style.overflow = "";
+      if (location.hash.indexOf("#comparison-") === 0) {
+        history.replaceState(null, "", location.pathname + location.search);
+      }
+    }
+    function open(id) {
+      var dialog = document.getElementById("comparison-" + id);
+      if (!dialog) return;
+      close();
+      dialog.classList.add("is-open");
+      openDialog = dialog;
+      document.body.style.overflow = "hidden";
+    }
+
+    document.addEventListener("click", function (event) {
+      var opener = event.target.closest ? event.target.closest("[data-open]") : null;
+      if (opener) { event.preventDefault(); open(opener.getAttribute("data-open")); return; }
+      var closer = event.target.closest ? event.target.closest("[data-close]") : null;
+      if (closer) { event.preventDefault(); close(); }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") close();
+    });
+
+    apply();
+  })();
+  </script>
 </body>
 </html>`;
     const blob = new Blob(["\uFEFF", html], { type: "text/html;charset=utf-8" });

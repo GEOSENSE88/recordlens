@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  isSubjectCandidate,
+  splitSubjectSegments,
+  subjectNamesFromTexts,
+} from "../app/subject-records.ts";
+
+// 실제 NEIS 파일의 표기를 그대로 옮긴 것. 로마숫자는 유니코드 Ⅰ(U+2160)이고
+// 과목 사이 마침표 뒤에 공백이 없다.
+const NEIS_CELL =
+  "문학: 작품 속 인물의 선택을 근거로 주제를 설명하고 지속적인 학문적 성장 가능성이 큼." +
+  "수학Ⅰ: 피보나치 수열의 일반항과 주가 예측이라는 주제로 탐구 활동을 함." +
+  "수학Ⅱ: 로렌츠 곡선과 지니계수를 심화 탐구함." +
+  "모의고사: 문항을 좌·우극한 비교로 분해한 뒤 조건을 재구성함." +
+  "영어Ⅰ: 팜유 지문을 읽고 환경 문제에 관심을 갖게 됨.";
+
+test("splits a NEIS cell that packs several subjects together", () => {
+  const subjects = subjectNamesFromTexts([NEIS_CELL]);
+  const { leading, segments } = splitSubjectSegments(NEIS_CELL, subjects);
+
+  assert.equal(leading, "");
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["문학", "수학Ⅰ", "수학Ⅱ", "모의고사", "영어Ⅰ"],
+  );
+  assert.match(segments[1].body, /피보나치/);
+  assert.doesNotMatch(segments[1].body, /로렌츠/);
+});
+
+test("recognises unicode roman numerals in subject names", () => {
+  const names = subjectNamesFromTexts([NEIS_CELL]);
+  for (const subject of ["수학Ⅰ", "수학Ⅱ", "영어Ⅰ"]) {
+    assert.equal(names.includes(subject), true, `${subject} 를 과목으로 찾지 못했습니다.`);
+  }
+});
+
+test("does not need a space after the sentence period", () => {
+  const withSpace = "국어: 토론을 진행함. 수학: 수열을 탐구함.";
+  const withoutSpace = "국어: 토론을 진행함.수학: 수열을 탐구함.";
+  for (const text of [withSpace, withoutSpace]) {
+    const segments = splitSubjectSegments(text, subjectNamesFromTexts([text])).segments;
+    assert.deepEqual(
+      segments.map((s) => s.subject),
+      ["국어", "수학"],
+      `${JSON.stringify(text)} 분할 실패`,
+    );
+  }
+});
+
+test("prefers the longer subject name so 수학Ⅰ is not cut down to 수학", () => {
+  const text = "수학Ⅰ: 수열을 탐구함.";
+  const { segments } = splitSubjectSegments(text, ["수학", "수학Ⅰ"]);
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].subject, "수학Ⅰ");
+});
+
+test("keeps prose fragments out of the subject list", () => {
+  assert.equal(isSubjectCandidate("배드민턴 개인 리그전 1"), false);
+  assert.equal(isSubjectCandidate("2024학년도"), false);
+  assert.equal(isSubjectCandidate("모둠에서"), false);
+  assert.equal(isSubjectCandidate("수학Ⅰ"), true);
+  assert.equal(isSubjectCandidate("확률과 통계"), true);
+});
+
+test("returns the whole cell as leading text when no subject is found", () => {
+  const text = "특별한 과목 표기 없이 이어지는 서술입니다.";
+  const { leading, segments } = splitSubjectSegments(text, ["국어", "수학"]);
+  assert.equal(segments.length, 0);
+  assert.equal(leading, text);
+});

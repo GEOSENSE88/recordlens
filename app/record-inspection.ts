@@ -3,7 +3,8 @@ export type InspectionIssueType =
   | "symbol"
   | "prohibited"
   | "institution"
-  | "business";
+  | "business"
+  | "person";
 
 export type InspectionIssue = {
   type: InspectionIssueType;
@@ -129,81 +130,268 @@ const TYPO_RULES: TextRule[] = [
   },
 ];
 
+/**
+ * 여기서 말하는 특수문자는 키보드로 바로 칠 수 없는 기호다.
+ * `~ ? ! + - @ # = _ | < >` 같은 자판 기호와 가운뎃점(·), 화살괄호 따옴표는
+ * 세특에서 정상적으로 쓰이므로 지적하지 않는다.
+ * 원문자·도형·화살표처럼 한글 워드에서 붙여 넣은 기호와 이모지만 잡는다.
+ */
 const SPECIAL_SYMBOL_EXPRESSION =
-  /[①-⑳ⓐ-ⓩ●■◆◇★☆▶▷※♣♠♥♦→←↑↓✓✔☎☞☜@#^_=+~`|\\<>{}\[\]]|\p{Extended_Pictographic}/gu;
+  /[①-⑳㉠-㉻⑴-⒇ⓐ-ⓩ●○■□◆◇▲△▼▽★☆▶▷◀◁※§¶♣♠♥♦♤♡◎→←↑↓⇒⇔↔✓✔✗✘☎☏☞☜☜♬♪♩†‡]|\p{Extended_Pictographic}/gu;
 
+/** 한글 표기 기관명. 대소문자를 구분하지 않고 찾는다. */
 const SPECIFIC_INSTITUTIONS = [
-  "KBS 방송국",
-  "KBS",
-  "EU",
-  "UN",
+  // 국제기구
+  "유엔",
+  "국제연합",
+  "세계보건기구",
+  "세계무역기구",
+  "국제통화기금",
+  "유네스코",
+  "유니세프",
+  "나토",
+  "국제원자력기구",
+  "세계기상기구",
+  "국제노동기구",
+  "세계식량계획",
+  "국제앰네스티",
+  "앰네스티",
+  "그린피스",
+  "국경없는의사회",
+  "국경 없는 의사회",
+  "적십자",
+  "대한적십자사",
+  "세계자연기금",
+  "국제방사선방호위원회",
+  "세계원자력발전사업자협회",
+  // 정부·공공기관
   "통계청",
   "경찰청",
+  "검찰청",
+  "국세청",
+  "관세청",
+  "기상청",
+  "산림청",
+  "특허청",
   "수사청",
+  "질병관리청",
   "교육청",
+  "식품의약품안전처",
+  "식약처",
+  "교육부",
+  "환경부",
+  "보건복지부",
+  "과학기술정보통신부",
+  "국토교통부",
+  "고용노동부",
+  "여성가족부",
+  "문화체육관광부",
+  "행정안전부",
+  "기획재정부",
+  "농림축산식품부",
+  "산업통상자원부",
+  "해양수산부",
+  "중소벤처기업부",
   "국립국어원",
+  "국가인권위원회",
   "헌법재판소",
-  "종로경찰서",
-  "독립협회",
+  "국민건강보험공단",
+  "국민연금공단",
+  "한국은행",
+  "한국전력공사",
+  "한국철도공사",
+  "코레일",
+  "한국소비자원",
+  "한국관광공사",
+  "한국장학재단",
+  "한국교육과정평가원",
+  "한국과학창의재단",
+  "한국연구재단",
+  "한국과학기술원",
   "한국음악저작권협회",
   "한국음악저작권 협회",
-  "국제방사선방호위원회",
-  "한국과학기술원",
-  "국제원자력기구",
-  "세계원자력발전사업자협회",
+  "한국전통문화전당",
+  "종로경찰서",
+  "독립협회",
   "미국심장학회",
   "식품안전나라",
-  "한국전통문화전당",
   "나눔의 집",
   "나눔의집",
   "달빛어린이병원",
-  "MIT",
-  "OECD",
-  "OECE",
-  "유엔",
+  "KBS 방송국",
+  // 대학 약칭. `서울대학교` 같은 정식 명칭은 학교 규칙이 따로 잡는다.
+  "서울대",
+  "연세대",
+  "고려대",
+  "성균관대",
+  "한양대",
+  "중앙대",
+  "경희대",
+  "서강대",
+  "이화여대",
+  "건국대",
+  "동국대",
+  "홍익대",
+  "국민대",
+  "숭실대",
+  "세종대",
+  "단국대",
+  "아주대",
+  "인하대",
+  "부산대",
+  "경북대",
+  "전남대",
+  "전북대",
+  "충남대",
+  "충북대",
+  "강원대",
+  "제주대",
+  "카이스트",
+  "포스텍",
+  "유니스트",
+  "지스트",
+  "하버드",
+  "스탠퍼드",
+  "스탠포드",
+  "옥스퍼드",
+  "케임브리지",
+  "프린스턴",
+  "도쿄대",
+  "칭화대",
+  "나사",
 ];
 
+/**
+ * 로마자 약어는 대소문자를 구분해 찾는다.
+ * `who`, `un`, `it` 같은 흔한 영어 단어가 대문자 약어로 오인되는 것을 막기 위함이다.
+ */
+const INSTITUTION_ACRONYMS = [
+  "UN",
+  "WHO",
+  "WTO",
+  "IMF",
+  "OECD",
+  "OECE",
+  "EU",
+  "UNESCO",
+  "UNICEF",
+  "NATO",
+  "NASA",
+  "IAEA",
+  "ILO",
+  "FAO",
+  "WFP",
+  "WMO",
+  "IPCC",
+  "UNHCR",
+  "UNDP",
+  "UNEP",
+  "ASEAN",
+  "APEC",
+  "OPEC",
+  "WWF",
+  "CDC",
+  "FDA",
+  "EPA",
+  "NGO",
+  "KBS",
+  "MBC",
+  "SBS",
+  "EBS",
+  "MIT",
+  "KAIST",
+  "POSTECH",
+  "UNIST",
+  "GIST",
+  "DGIST",
+];
+
+/**
+ * 한글 표기 상호·브랜드명.
+ * `현대`, `기아`, `메타`, `자라`처럼 일반 명사로도 자주 쓰이는 낱말은 넣지 않는다.
+ * (`현대 사회`, `기아 문제`, `메타 인지` 등을 오탐하게 된다.)
+ */
 const SPECIFIC_BUSINESSES = [
-  "필립스",
-  "카카오 헬스케어",
-  "카카오헬스케어",
-  "카카오톡",
-  "카카오페이",
-  "스타벅스",
-  "스페이스X",
-  "SpaceX",
-  "ChatGPT",
-  "챗GPT",
-  "다이소",
-  "롯데월드",
-  "세라젬",
-  "VIPKID",
-  "나이키",
-  "애플",
-  "아디다스",
-  "LG",
-  "구글",
-  "Threads",
-  "스레드",
-  "디즈니",
+  "삼성",
   "삼성전자",
   "삼성그룹",
   "현대자동차",
   "현대그룹",
-  "SK",
+  "포스코",
+  "한화",
+  "두산",
+  "신세계",
+  "이마트",
+  "롯데월드",
+  "롯데마트",
   "네이버",
-  "유튜브",
-  "넷플릭스",
-  "마이크로소프트",
-  "아마존",
-  "맥도날드",
+  "카카오",
+  "카카오톡",
+  "카카오페이",
+  "카카오뱅크",
+  "카카오 헬스케어",
+  "카카오헬스케어",
   "쿠팡",
   "배달의민족",
+  "당근마켓",
+  "구글",
+  "애플",
+  "아마존",
+  "마이크로소프트",
+  "테슬라",
+  "엔비디아",
+  "인텔",
+  "퀄컴",
+  "화웨이",
+  "샤오미",
+  "소니",
+  "도요타",
+  "토요타",
+  "필립스",
+  "스페이스X",
+  "유튜브",
+  "넷플릭스",
   "인스타그램",
   "페이스북",
   "틱톡",
-  "한강 버거",
+  "스레드",
+  "디즈니",
+  "픽사",
+  "지브리",
+  "나이키",
+  "아디다스",
+  "유니클로",
+  "스타벅스",
+  "맥도날드",
+  "버거킹",
+  "코카콜라",
+  "다이소",
+  "올리브영",
+  "세븐일레븐",
   "프라다",
+  "세라젬",
+  "한강 버거",
+  "챗GPT",
+  "오픈AI",
+  "딥마인드",
+  "제미나이",
+  "파파고",
+];
+
+/** 로마자 상호는 대소문자를 구분해 찾는다. */
+const BUSINESS_ACRONYMS = [
+  "SpaceX",
+  "ChatGPT",
+  "OpenAI",
+  "DeepMind",
+  "Threads",
+  "NVIDIA",
+  "VIPKID",
+  "LG",
+  "SK",
+  "CJ",
+  "GS25",
+  "AMD",
 ];
 
 function escapeRegExp(value: string) {
@@ -219,24 +407,34 @@ const ENTITY_TAIL =
  * iOS Safari 16.4 미만은 정규식 lookbehind를 지원하지 않는다. 모듈 최상위에서 그대로
  * 던지면 앱 전체가 빈 화면이 되므로, 지원하지 않는 브라우저에서는 해당 규칙만 비활성화한다.
  */
-function entityExpression(body: string): RegExp | null {
+function entityExpression(body: string, caseSensitive = false): RegExp | null {
   try {
-    return new RegExp(`${ENTITY_HEAD}(?:${body})${ENTITY_TAIL}`, "giu");
+    return new RegExp(`${ENTITY_HEAD}(?:${body})${ENTITY_TAIL}`, caseSensitive ? "gu" : "giu");
   } catch {
     return null;
   }
 }
 
-function exactEntityExpression(values: string[]) {
+function exactEntityExpression(values: string[], caseSensitive = false) {
   return entityExpression(
     values
       .map(escapeRegExp)
       .sort((left, right) => right.length - left.length)
       .join("|"),
+    caseSensitive,
   );
 }
 
 const SPECIFIC_INSTITUTION_EXPRESSION = exactEntityExpression(SPECIFIC_INSTITUTIONS);
+const INSTITUTION_ACRONYM_EXPRESSION = exactEntityExpression(INSTITUTION_ACRONYMS, true);
+const BUSINESS_ACRONYM_EXPRESSION = exactEntityExpression(BUSINESS_ACRONYMS, true);
+/**
+ * 외부 강사·교수 같은 사람 이름을 찾는다.
+ * `장군`, `선생`처럼 역사 인물에 붙는 호칭은 넣지 않아 교과 내용과 섞이지 않게 한다.
+ */
+const PERSON_EXPRESSION = entityExpression(
+  "[가-힣]{2,4}\\s?(?:강사|교수|박사|연구원|원장|소장|대표이사|대표|셰프|아나운서|변호사|회계사|건축가|감독)",
+);
 const STRICT_SCHOOL_EXPRESSION = entityExpression(
   "[가-힣A-Za-z0-9·]{2,24}(?:대학교|전문대학|사관학교|고등학교|중학교|초등학교)",
 );
@@ -308,6 +506,7 @@ export function inspectRecordText(text: string): InspectionIssue[] {
 
   for (const expression of [
     SPECIFIC_INSTITUTION_EXPRESSION,
+    INSTITUTION_ACRONYM_EXPRESSION,
     STRICT_SCHOOL_EXPRESSION,
     NAMED_INSTITUTION_EXPRESSION,
     SPECIFIC_PLACE_INSTITUTION_EXPRESSION,
@@ -330,15 +529,32 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     }
   }
 
-  if (BUSINESS_EXPRESSION) {
-    BUSINESS_EXPRESSION.lastIndex = 0;
-    for (const match of text.matchAll(BUSINESS_EXPRESSION)) {
+  for (const expression of [BUSINESS_EXPRESSION, BUSINESS_ACRONYM_EXPRESSION]) {
+    if (!expression) continue;
+    expression.lastIndex = 0;
+    for (const match of text.matchAll(expression)) {
       issues.push({
         type: "business",
         label: "상호명",
         match: match[0],
         guidance:
           "구체적인 회사·제품·서비스의 실명으로 보입니다. 2024·2025 교사 점검 사례와 허용 예외를 대조해 주세요.",
+        reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
+        severity: "warning",
+        index: match.index ?? 0,
+      });
+    }
+  }
+
+  if (PERSON_EXPRESSION) {
+    PERSON_EXPRESSION.lastIndex = 0;
+    for (const match of text.matchAll(PERSON_EXPRESSION)) {
+      issues.push({
+        type: "person",
+        label: "인물·강사명",
+        match: match[0],
+        guidance:
+          "외부 강사·교수 등 특정 인물의 실명으로 보입니다. 교과 내용 속 인물인지, 기재를 피해야 할 실명인지 확인해 주세요.",
         reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
         severity: "warning",
         index: match.index ?? 0,
@@ -373,4 +589,5 @@ export const INSPECTION_LABELS: Record<InspectionIssueType, string> = {
   prohibited: "기재금지어",
   institution: "기관명",
   business: "상호명",
+  person: "인물·강사명",
 };

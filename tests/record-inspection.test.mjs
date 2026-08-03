@@ -81,3 +81,64 @@ test("never drops a prohibited-word finding behind a wall of symbols", () => {
     true,
   );
 });
+
+test("ignores keyboard-typable punctuation but catches pasted symbols", () => {
+  const typable = inspectRecordText("3~4월 프로젝트에서 A+ 등급을 받음. 왜? 좋았기 때문! 비용-편익 분석함.");
+  assert.equal(
+    typable.some((issue) => issue.type === "symbol"),
+    false,
+    "자판으로 칠 수 있는 기호는 특수문자로 보지 않습니다.",
+  );
+
+  const pasted = inspectRecordText("① 자료 조사 ② 분석 ★ 정리 → 발표 ※ 참고");
+  const symbols = pasted.filter((issue) => issue.type === "symbol").map((issue) => issue.match);
+  for (const mark of ["①", "②", "★", "→", "※"]) {
+    assert.equal(symbols.includes(mark), true, `${mark} 를 특수문자로 잡지 못했습니다.`);
+  }
+});
+
+test("finds the institutions teachers most often flag", () => {
+  const found = inspectRecordText("통계청 자료를 인용하고 UN, WTO, WHO 보고서를 비교함.")
+    .filter((issue) => issue.type === "institution")
+    .map((issue) => issue.match);
+  for (const name of ["통계청", "UN", "WTO", "WHO"]) {
+    assert.equal(found.includes(name), true, `${name} 를 기관명으로 잡지 못했습니다.`);
+  }
+});
+
+test("does not mistake common english words for institution acronyms", () => {
+  const issues = inspectRecordText("'Who am I?'라는 질문을 던지고 who, un, it 을 분석함.");
+  assert.equal(issues.some((issue) => issue.type === "institution"), false);
+});
+
+test("finds university short names and well known brands", () => {
+  const schools = inspectRecordText("서울대 강연을 듣고 카이스트와 하버드 사례를 조사함.")
+    .filter((issue) => issue.type === "institution")
+    .map((issue) => issue.match);
+  assert.deepEqual(schools, ["서울대", "카이스트", "하버드"]);
+
+  const brands = inspectRecordText("애플, 삼성, 구글의 사업 모델을 비교함.")
+    .filter((issue) => issue.type === "business")
+    .map((issue) => issue.match);
+  for (const brand of ["애플", "삼성", "구글"]) {
+    assert.equal(brands.includes(brand), true, `${brand} 를 상호명으로 잡지 못했습니다.`);
+  }
+});
+
+test("leaves brand-shaped common nouns alone", () => {
+  const issues = inspectRecordText(
+    "현대 사회의 기아 문제와 메타 인지 전략을 탐구하고 무럭무럭 자라 감.",
+  );
+  assert.equal(issues.some((issue) => issue.type === "business"), false);
+  assert.equal(issues.some((issue) => issue.type === "institution"), false);
+});
+
+test("flags named instructors but not historical figures", () => {
+  const people = inspectRecordText("김민수 강사의 특강을 듣고 박지훈 교수의 논평을 정리함.")
+    .filter((issue) => issue.type === "person")
+    .map((issue) => issue.match);
+  assert.deepEqual(people, ["김민수 강사", "박지훈 교수"]);
+
+  const historical = inspectRecordText("이순신 장군과 김구 선생의 생애를 조사함.");
+  assert.equal(historical.some((issue) => issue.type === "person"), false);
+});
