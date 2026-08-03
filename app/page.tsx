@@ -105,7 +105,7 @@ const PAGE_SIZE = 30;
 /** 유사도 비교 중 이 시간(ms)을 넘기면 화면 갱신을 위해 제어권을 넘긴다. */
 const YIELD_INTERVAL_MS = 50;
 const HEADER_TEXT = "세부능력 및 특기사항";
-const ACCEPTED_EXTENSIONS = [".xls", ".xlsx", ".xlsm", ".xlsb"];
+const ACCEPTED_EXTENSIONS = [".xls", ".xlsx", ".xlsm", ".xlsb", ".pdf"];
 const INSPECTION_TYPES: InspectionIssueType[] = [
   "typo",
   "symbol",
@@ -114,6 +114,15 @@ const INSPECTION_TYPES: InspectionIssueType[] = [
   "business",
   "person",
 ];
+
+/**
+ * 오래 걸리는 처리 중간에 브라우저에 제어권을 넘긴다.
+ * requestAnimationFrame은 탭이 뒤로 가면 아예 멈춰서, 파일을 올려 두고 다른 탭을 보면
+ * 진행이 그대로 멈춘다. setTimeout은 느려질 뿐 멈추지는 않는다.
+ */
+function yieldToBrowser() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
 
 function cellText(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -359,6 +368,73 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
     });
 }
 
+/**
+ * 학교생활기록부 PDF에서 뽑아낸 학생별 세특 덩어리를 과목별 기록으로 나눈다.
+ * 과목 분할은 엑셀과 같은 규칙을 쓴다.
+ */
+async function makePdfCheckRecords(
+  file: File,
+  onProgress: (done: number, total: number) => void,
+): Promise<CheckRecord[]> {
+  const { parseStudentRecordPdf } = await import("./pdf-records");
+  const students = await parseStudentRecordPdf(file, async (done, total) => {
+    onProgress(done, total);
+    // 쪽 수가 많아 화면이 멈춘 것처럼 보이지 않도록 이따금 제어권을 넘긴다.
+    if (done % 20 === 0) {
+      await yieldToBrowser();
+    }
+  });
+
+  const subjects = subjectNamesFromTexts(students.map((student) => student.text));
+  const records: CheckRecord[] = [];
+
+  for (const student of students) {
+    const { leading, segments } = splitSubjectSegments(student.text, subjects);
+    const chunks = segments.length
+      ? segments
+      : [{ subject: "과목 미상", body: leading || student.text }];
+
+    for (const chunk of chunks) {
+      const text = cleanVisibleText(
+        chunk.subject === "과목 미상" ? chunk.body : `${chunk.subject}: ${chunk.body}`,
+      );
+      if (text.length <= 3) continue;
+      const normalizedText = normalizeText(text);
+      records.push({
+        id: `pdf-${records.length}-${student.sourcePage}`,
+        className: student.className,
+        grade: student.grade,
+        subject: chunk.subject,
+        number: student.number,
+        name: student.name,
+        text,
+        sourceFile: file.name,
+        sourceRow: student.sourcePage,
+        rawCells: [
+          student.className,
+          student.number,
+          student.grade,
+          "",
+          chunk.subject,
+          student.name,
+          text,
+        ],
+        normalizedText,
+        tokens: [...new Set(normalizedText.split(" ").filter(Boolean))],
+        similarity: 0,
+        matchId: null,
+        matchName: "",
+        matchText: "",
+        exactGroupSize: 1,
+        recordType: "subject",
+        issues: inspectRecordText(text),
+      });
+    }
+  }
+
+  return records;
+}
+
 function makeCreativeCheckRecords(rows: unknown[][], sourceFile: string): CheckRecord[] {
   return parseCreativeActivityRows(rows).map((record, index) => {
     const normalizedText = normalizeText(record.text);
@@ -561,7 +637,7 @@ async function analyzeSimilarity(
     const isLast = index === analyzed.length - 1;
     if (isLast || performance.now() - lastYield >= YIELD_INTERVAL_MS) {
       onProgress(Math.round(((index + 1) / Math.max(1, analyzed.length)) * 100));
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await yieldToBrowser();
       lastYield = performance.now();
     }
   }
@@ -1093,17 +1169,31 @@ export default function Home() {
       return;
     }
     if (!files.length) {
-      setError("엑셀 파일(.xls, .xlsx, .xlsm, .xlsb)을 선택해 주세요.");
+      setError("엑셀(.xls, .xlsx, .xlsm, .xlsb) 또는 학교생활기록부 PDF 파일을 선택해 주세요.");
       return;
     }
 
     try {
-      setProgress({ stage: "reading", value: 5, label: "엑셀 파일을 안전하게 읽고 있습니다" });
+      setProgress({ stage: "reading", value: 5, label: "파일을 안전하게 읽고 있습니다" });
       const sourceRows: SourceRow[] = [];
       const parsedRecords: CheckRecord[] = [];
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
+
+        if (file.name.toLowerCase().endsWith(".pdf")) {
+          parsedRecords.push(
+            ...(await makePdfCheckRecords(file, (done, total) => {
+              setProgress({
+                stage: "reading",
+                value: Math.round(((index + done / Math.max(1, total)) / files.length) * 55),
+                label: `${file.name} 읽는 중 (${done}/${total}쪽)`,
+              });
+            })),
+          );
+          continue;
+        }
+
         const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, {
           type: "array",
@@ -1132,11 +1222,11 @@ export default function Home() {
           value: Math.round(((index + 1) / files.length) * 55),
           label: `${file.name} 읽는 중`,
         });
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        await yieldToBrowser();
       }
 
       setProgress({ stage: "cleaning", value: 68, label: "학급·과목·활동 영역을 정리하고 있습니다" });
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await yieldToBrowser();
       const baseRecords = mergeCheckRecords([
         ...parsedRecords,
         ...(sourceRows.length ? makeRecords(sourceRows) : []),
@@ -1636,6 +1726,8 @@ export default function Home() {
   }
 
   const issueCount = counts.exact + counts.high + counts.review;
+  /** PDF에서 읽은 자료는 띄어쓰기가 원문과 달라질 수 있어 결과 화면에 따로 알린다. */
+  const usedPdfSource = sourceFiles.some((name) => name.toLowerCase().endsWith(".pdf"));
   const progressWidth = progress?.stage === "comparing" ? progress.value : progress?.value ?? 0;
 
   return (
@@ -1762,7 +1854,8 @@ export default function Home() {
                 </span>
                 <strong>반별 엑셀 파일을 여기에 놓으세요</strong>
                 <span>또는 클릭해서 여러 파일을 한꺼번에 선택</span>
-                <small>XLS · XLSX · XLSM · XLSB</small>
+                <span>학교생활기록부 PDF도 읽을 수 있습니다</span>
+                <small>XLS · XLSX · XLSM · XLSB · PDF</small>
               </button>
 
               <div className="threshold-setting">
@@ -1871,6 +1964,12 @@ export default function Home() {
               <ShieldCheck size={16} />
               내려받은 파일에는 학생 이름과 기록이 그대로 들어 있습니다. 점검이 끝나면 파일을
               안전하게 관리해 주세요.
+            </p>
+            <p className="guide-note">
+              <Info size={16} />
+              엑셀을 구할 수 없다면 <strong>학생부 조회 및 출력</strong>에서 저장한 학교생활기록부
+              PDF를 올려도 됩니다. 다만 PDF는 줄이 바뀌는 자리의 띄어쓰기가 원문과 달라질 수
+              있어, 엑셀이 있으면 엑셀을 쓰는 편이 정확합니다.
             </p>
           </section>
 
@@ -2291,6 +2390,18 @@ export default function Home() {
               </div>
             </div>
           </section>
+
+          {usedPdfSource && (
+            <div className="report-notice pdf-notice">
+              <AlertTriangle size={18} />
+              <p>
+                <strong>PDF에서 읽은 기록이 섞여 있습니다.</strong> PDF는 문단을 양쪽 정렬로
+                인쇄하기 때문에 줄이 바뀌는 자리의 띄어쓰기가 원문과 달라질 수 있습니다. 그
+                영향으로 유사도와 맞춤법 점검 결과가 조금씩 어긋날 수 있으니, 가능하면
+                나이스에서 <strong>XLS data</strong>로 내려받은 엑셀을 사용해 주세요.
+              </p>
+            </div>
+          )}
 
           <div className="report-notice">
             <Info size={18} />

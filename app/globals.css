@@ -641,6 +641,17 @@ input[type="range"] {
   box-shadow: var(--shadow);
 }
 
+/* PDF로 읽었을 때만 뜨는 주의 문구 */
+.report-notice.pdf-notice {
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
+  color: var(--warning-strong);
+}
+
+.report-notice.pdf-notice strong {
+  color: inherit;
+}
+
 .guide-figure figcaption {
   margin-top: 11px;
   color: var(--ink-soft);

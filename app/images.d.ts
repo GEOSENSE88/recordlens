@@ -7,3 +7,9 @@ declare module "*.png" {
   const asset: string | { src: string; width: number; height: number };
   export default asset;
 }
+
+/** Vite의 `?url` 접미사는 파일의 최종 주소를 문자열로 돌려준다. */
+declare module "*?url" {
+  const url: string;
+  export default url;
+}
