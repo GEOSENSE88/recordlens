@@ -225,8 +225,27 @@ export const REPORT_SCRIPT = String.raw`
   var emptyNote = document.getElementById("report-empty");
   var prevButton = document.getElementById("report-prev");
   var nextButton = document.getElementById("report-next");
+  var hideCheckedInput = document.getElementById("report-hide-checked");
+  var progressLabel = document.getElementById("report-progress");
   var page = 1;
   var matched = records.slice();
+
+  // 확인 표시: 저장 시점의 값에서 시작해, 저장본 안에서 이어서 확인할 수 있다.
+  // (같은 브라우저라면 localStorage 로 다음에 열 때도 유지된다. file:// 등
+  // 저장소를 못 쓰는 환경에서는 이번 열람 동안만 유지된다.)
+  var CHECK_STORE = "recordlens-checked-v1";
+  var checked = {};
+  records.forEach(function (record) { if (record.chk) checked[record.k] = 1; });
+  try {
+    JSON.parse(localStorage.getItem(CHECK_STORE) || "[]").forEach(function (key) {
+      checked[key] = 1;
+    });
+  } catch (ignored) {}
+  function persistChecked() {
+    try {
+      localStorage.setItem(CHECK_STORE, JSON.stringify(Object.keys(checked)));
+    } catch (ignored) {}
+  }
 
   records.forEach(function (record, index) {
     record.idx = index;
@@ -246,7 +265,9 @@ export const REPORT_SCRIPT = String.raw`
     var detail = record.m >= 0 || record.i.length
       ? '<a class="compare-button" href="#results" data-open="' + record.idx + '">상세 <b>›</b></a>'
       : '<span class="compare-button disabled">상세</span>';
-    return "<tr>" +
+    return '<tr class="' + (checked[record.k] ? "row-checked" : "") + '">' +
+      '<td class="check-cell"><input type="checkbox" data-check="' + record.idx + '"' +
+      (checked[record.k] ? " checked" : "") + ' aria-label="확인 여부"></td>' +
       '<td><span class="status-badge ' + status + '"><i></i>' + RISK_LABELS[status] + "</span></td>" +
       '<td><strong class="student-name">' + escapeHtml(record.n) + '</strong><span class="muted">' + escapeHtml(record.c) + "</span></td>" +
       '<td><span class="subject-chip">' + escapeHtml(record.s) + "</span></td>" +
@@ -260,6 +281,11 @@ export const REPORT_SCRIPT = String.raw`
 
   function compare(a, b) {
     var mode = sortSelect ? sortSelect.value : "risk";
+    if (mode === "class") {
+      return a.c.localeCompare(b.c, "ko", { numeric: true }) ||
+        ((Number(a.no) || 0) - (Number(b.no) || 0)) ||
+        a.s.localeCompare(b.s, "ko");
+    }
     if (mode === "name") return a.n.localeCompare(b.n, "ko");
     if (mode === "subject") return a.s.localeCompare(b.s, "ko");
     return (b.sim - a.sim) || a.n.localeCompare(b.n, "ko");
@@ -269,10 +295,12 @@ export const REPORT_SCRIPT = String.raw`
     var term = normalizeText(searchInput ? searchInput.value : "");
     var risk = riskSelect ? riskSelect.value : "all";
     var issue = issueSelect ? issueSelect.value : "all";
+    var hide = Boolean(hideCheckedInput && hideCheckedInput.checked);
 
     matched = records.filter(function (record) {
       if (risk !== "all" && record.status !== risk) return false;
       if (issue !== "all" && record.types.indexOf(issue) < 0) return false;
+      if (hide && checked[record.k]) return false;
       if (!term) return true;
       return record.hay.indexOf(term) >= 0;
     });
@@ -295,6 +323,11 @@ export const REPORT_SCRIPT = String.raw`
     if (emptyNote) emptyNote.hidden = matched.length > 0;
     if (prevButton) prevButton.disabled = page <= 1;
     if (nextButton) nextButton.disabled = page >= pages;
+    if (progressLabel) {
+      var done = records.reduce(function (sum, record) { return sum + (checked[record.k] ? 1 : 0); }, 0);
+      progressLabel.textContent = "확인 완료 " + done.toLocaleString("ko-KR") + " / " +
+        records.length.toLocaleString("ko-KR") + "건";
+    }
   }
 
   function reset() { page = 1; apply(); }
@@ -303,6 +336,19 @@ export const REPORT_SCRIPT = String.raw`
   if (riskSelect) riskSelect.addEventListener("change", reset);
   if (issueSelect) issueSelect.addEventListener("change", reset);
   if (sortSelect) sortSelect.addEventListener("change", reset);
+  if (hideCheckedInput) hideCheckedInput.addEventListener("change", reset);
+
+  // 표의 확인 체크박스: 표시를 저장하고 화면을 다시 그린다.
+  document.addEventListener("change", function (event) {
+    var box = event.target.closest ? event.target.closest("[data-check]") : null;
+    if (!box) return;
+    var record = records[Number(box.getAttribute("data-check"))];
+    if (!record) return;
+    if (box.checked) checked[record.k] = 1;
+    else delete checked[record.k];
+    persistChecked();
+    apply();
+  });
   if (prevButton) prevButton.addEventListener("click", function () { if (page > 1) { page -= 1; apply(); } });
   if (nextButton) nextButton.addEventListener("click", function () {
     if (page < Math.max(1, Math.ceil(matched.length / PAGE_SIZE))) { page += 1; apply(); }

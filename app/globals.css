@@ -1180,6 +1180,8 @@ input[type="range"] {
 .results-actions {
   display: flex;
   align-items: center;
+  /* 필터가 다섯 개라 좁은 화면에서는 줄을 바꿔야 페이지가 옆으로 밀리지 않는다. */
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1247,28 +1249,83 @@ th {
   text-align: left;
 }
 
-th:nth-child(1) {
-  width: 128px;
+/* 첫 칸은 확인 체크박스. 이후 칸 번호는 하나씩 밀린다. */
+th.check-cell {
+  width: 46px;
 }
 
 th:nth-child(2) {
-  width: 138px;
+  width: 128px;
 }
 
 th:nth-child(3) {
-  width: 112px;
+  width: 138px;
 }
 
 th:nth-child(4) {
+  width: 112px;
+}
+
+th:nth-child(5) {
   width: 124px;
 }
 
-th:nth-child(6) {
+th:nth-child(7) {
   width: 200px;
 }
 
-th:nth-child(7) {
+th:nth-child(8) {
   width: 96px;
+}
+
+td.check-cell,
+th.check-cell {
+  text-align: center;
+}
+
+.check-cell input {
+  width: 19px;
+  height: 19px;
+  accent-color: var(--brand-600);
+  cursor: pointer;
+}
+
+/* 확인을 끝낸 기록은 한눈에 구분되도록 가라앉힌다. */
+tr.row-checked td:not(.check-cell) {
+  opacity: 0.45;
+}
+
+tr.row-checked:hover td {
+  opacity: 1;
+}
+
+.review-progress {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.review-progress strong {
+  color: var(--brand-700);
+}
+
+.hide-checked-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hide-checked-toggle input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--brand-600);
+  cursor: pointer;
 }
 
 td {
@@ -2075,6 +2132,44 @@ footer {
   cursor: pointer;
   font-size: 13px;
   font-weight: 800;
+}
+
+/* 상세 창 아래의 이전·다음·확인 이동 단추 */
+.modal-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.modal-footer .modal-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--brand-900);
+}
+
+.modal-footer .modal-nav-button:disabled {
+  color: var(--brand-200);
+  cursor: default;
+}
+
+.modal-nav-position {
+  min-width: 64px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.modal-footer .modal-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--brand-700);
 }
 
 .visually-hidden {

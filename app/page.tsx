@@ -41,6 +41,7 @@ import {
 } from "./record-inspection";
 
 type RiskStatus = "exact" | "high" | "review" | "normal";
+type SortMode = "risk" | "class" | "name" | "subject";
 type RecordType = "subject" | "creative";
 
 type SourceRow = {
@@ -70,6 +71,12 @@ type CheckRecord = {
   exactGroupSize: number;
   recordType: RecordType;
   issues: InspectionIssue[];
+  /**
+   * 확인 표시를 저장할 때 쓰는 내용 기반 열쇠.
+   * id는 업로드할 때마다 다시 매겨지므로, 같은 파일을 다시 올려도
+   * 확인 표시가 유지되려면 내용에서 만든 값이 필요하다.
+   */
+  checkKey: string;
 };
 
 type ProgressState = {
@@ -122,6 +129,51 @@ const INSPECTION_TYPES: InspectionIssueType[] = [
  */
 function yieldToBrowser() {
   return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+/** 확인 표시 저장용 짧은 해시(djb2). 보안 용도가 아니라 열쇠 만들기용이다. */
+function contentHash(value: string) {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash + value.charCodeAt(index)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function checkKeyOf(
+  record: Pick<CheckRecord, "name" | "className" | "subject" | "normalizedText">,
+) {
+  return contentHash(
+    `${record.name}|${record.className}|${record.subject}|${record.normalizedText}`,
+  );
+}
+
+const CHECKED_STORAGE_KEY = "recordlens-checked-v1";
+/** 브라우저 저장소가 한없이 커지지 않도록 최근 확인 표시만 남긴다. */
+const CHECKED_STORAGE_LIMIT = 50000;
+
+function loadCheckedKeys(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(CHECKED_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((value) => typeof value === "string") : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCheckedKeys(keys: Set<string>) {
+  try {
+    window.localStorage.setItem(
+      CHECKED_STORAGE_KEY,
+      JSON.stringify([...keys].slice(-CHECKED_STORAGE_LIMIT)),
+    );
+  } catch {
+    // 저장소를 못 쓰는 환경(시크릿 창 등)에서는 이번 화면 안에서만 유지된다.
+  }
 }
 
 function cellText(value: unknown) {
@@ -364,6 +416,7 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
         exactGroupSize: 1,
         recordType: "subject",
         issues: inspectRecordText(record.text),
+        checkKey: "",
       };
     });
 }
@@ -428,6 +481,7 @@ async function makePdfCheckRecords(
         exactGroupSize: 1,
         recordType: "subject",
         issues: inspectRecordText(text),
+        checkKey: "",
       });
     }
   }
@@ -466,6 +520,7 @@ function makeCreativeCheckRecords(rows: unknown[][], sourceFile: string): CheckR
       exactGroupSize: 1,
       recordType: "creative" as const,
       issues: inspectRecordText(record.text),
+      checkKey: "",
     };
   });
 }
@@ -502,6 +557,7 @@ function mergeCheckRecords(records: CheckRecord[]) {
       normalizedText,
       tokens: [...new Set(normalizedText.split(" ").filter(Boolean))],
       issues: inspectRecordText(record.text),
+      checkKey: "",
     };
   });
 }
@@ -570,6 +626,7 @@ function makeRecords(sourceRows: SourceRow[]) {
         exactGroupSize: 1,
         recordType: "subject",
         issues: inspectRecordText(text),
+        checkKey: "",
       };
     })
     .filter((record) => record.normalizedText.length > 0 && record.text.length > 3);
@@ -704,6 +761,7 @@ function makeDemoRecords(): CheckRecord[] {
       exactGroupSize: 1,
       recordType: "subject",
       issues: inspectRecordText(text),
+      checkKey: "",
     };
   });
 }
@@ -1010,19 +1068,30 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<"all" | RiskStatus>("all");
   const [issueFilter, setIssueFilter] = useState<"all" | InspectionIssueType>("all");
-  const [sortMode, setSortMode] = useState<"risk" | "name" | "subject">("risk");
+  const [sortMode, setSortMode] = useState<SortMode>("risk");
   const [page, setPage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
   const [reportTime, setReportTime] = useState("");
+  /**
+   * 담당자가 눈으로 확인을 끝낸 기록. 내용 기반 열쇠로 저장해 재업로드에도 유지된다.
+   * 확인 표시는 기록이 표시된 뒤에만 화면에 나타나므로(첫 그리기는 항상 빈 목록),
+   * 첫 그리기에서 저장소를 읽어도 서버 렌더와 어긋나지 않는다.
+   */
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() =>
+    typeof window === "undefined" ? new Set() : loadCheckedKeys(),
+  );
+  const [hideChecked, setHideChecked] = useState(false);
 
-  useEffect(() => {
-    if (!selectedRecord) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedRecord(null);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [selectedRecord]);
+  function toggleChecked(key: string, force?: boolean) {
+    setCheckedKeys((previous) => {
+      const next = new Set(previous);
+      const shouldCheck = force ?? !next.has(key);
+      if (shouldCheck) next.add(key);
+      else next.delete(key);
+      saveCheckedKeys(next);
+      return next;
+    });
+  }
 
   const counts = useMemo(() => {
     const initial = { exact: 0, high: 0, review: 0, normal: 0 };
@@ -1093,6 +1162,7 @@ export default function Home() {
       if (issueFilter !== "all" && !record.issues.some((issue) => issue.type === issueFilter)) {
         return false;
       }
+      if (hideChecked && checkedKeys.has(record.checkKey)) return false;
       if (!term) return true;
       return normalizeText(
         `${record.name} ${record.className} ${record.subject} ${record.text} ${record.matchName}`,
@@ -1100,14 +1170,59 @@ export default function Home() {
     });
 
     return filtered.sort((a, b) => {
+      if (sortMode === "class") {
+        // 담당자는 반 순서대로 훑는다. 학급 → 번호 → 과목 순.
+        return (
+          a.className.localeCompare(b.className, "ko", { numeric: true }) ||
+          (Number(a.number) || 0) - (Number(b.number) || 0) ||
+          a.subject.localeCompare(b.subject, "ko")
+        );
+      }
       if (sortMode === "name") return a.name.localeCompare(b.name, "ko");
       if (sortMode === "subject") return a.subject.localeCompare(b.subject, "ko");
       return b.similarity - a.similarity || a.name.localeCompare(b.name, "ko");
     });
-  }, [issueFilter, records, riskFilter, search, sortMode, threshold]);
+  }, [checkedKeys, hideChecked, issueFilter, records, riskFilter, search, sortMode, threshold]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const visibleRecords = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const reviewedCount = useMemo(
+    () => records.reduce((sum, record) => sum + (checkedKeys.has(record.checkKey) ? 1 : 0), 0),
+    [checkedKeys, records],
+  );
+
+  const selectedIndex = selectedRecord
+    ? filteredRecords.findIndex((record) => record.id === selectedRecord.id)
+    : -1;
+
+  /** 상세 창을 닫지 않고 현재 필터·정렬 순서대로 앞뒤 기록을 오간다. */
+  function openNeighbor(delta: number) {
+    if (selectedIndex < 0) return;
+    const next = filteredRecords[selectedIndex + delta];
+    if (next) setSelectedRecord(next);
+  }
+
+  /** 확인 표시를 남기고 다음 기록으로 넘어간다. 마지막이면 창을 닫는다. */
+  function confirmAndAdvance() {
+    if (!selectedRecord) return;
+    toggleChecked(selectedRecord.checkKey, true);
+    // `다음`은 이번 그리기의 목록 기준이므로, 숨기기가 켜져 있어도 올바른 다음 기록이다.
+    const next = filteredRecords[selectedIndex + 1];
+    setSelectedRecord(next ?? null);
+  }
+
+  useEffect(() => {
+    if (!selectedRecord) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedRecord(null);
+      if (event.key === "ArrowLeft") openNeighbor(-1);
+      if (event.key === "ArrowRight") openNeighbor(1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // openNeighbor는 selectedRecord·filteredRecords에서 파생되므로 그 둘만 보면 된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRecord, filteredRecords]);
 
   function changeThreshold(value: number) {
     setThreshold(value);
@@ -1129,7 +1244,7 @@ export default function Home() {
     setPage(1);
   }
 
-  function changeSortMode(value: "risk" | "name" | "subject") {
+  function changeSortMode(value: SortMode) {
     setSortMode(value);
     setPage(1);
   }
@@ -1142,7 +1257,9 @@ export default function Home() {
     }
 
     setProgress({ stage: "comparing", value: 0, label: "문장 유사도를 비교하고 있습니다" });
-    const analyzed = await analyzeSimilarity(baseRecords, (value) =>
+    // 확인 표시 열쇠는 병합이 끝난 최종 본문으로 만들어야 같은 파일을 다시 올려도 유지된다.
+    const keyed = baseRecords.map((record) => ({ ...record, checkKey: checkKeyOf(record) }));
+    const analyzed = await analyzeSimilarity(keyed, (value) =>
       setProgress({ stage: "comparing", value, label: "문장 유사도를 비교하고 있습니다" }),
     );
 
@@ -1281,6 +1398,7 @@ export default function Home() {
     ];
     const checkRows = [
       [
+        "확인 여부",
         "이름",
         contentLabel,
         "최대 일치율",
@@ -1292,6 +1410,7 @@ export default function Home() {
         "근거",
       ],
       ...records.map((record) => [
+        checkedKeys.has(record.checkKey) ? "확인" : "",
         record.name,
         record.text,
         record.similarity,
@@ -1331,6 +1450,7 @@ export default function Home() {
       { wch: 10 },
     ];
     checkSheet["!cols"] = [
+      { wch: 9 },
       { wch: 12 },
       { wch: 75 },
       { wch: 14 },
@@ -1346,7 +1466,8 @@ export default function Home() {
     }));
 
     for (let row = 2; row <= records.length + 1; row += 1) {
-      const cell = checkSheet[`C${row}`];
+      // 확인 여부 열이 앞에 붙으면서 일치율은 D열이 되었다.
+      const cell = checkSheet[`D${row}`];
       if (cell) cell.z = "0%";
     }
 
@@ -1411,6 +1532,7 @@ export default function Home() {
       records: orderedRecords.map((record) => ({
         n: record.name,
         c: record.className,
+        no: record.number,
         s: record.subject,
         t: record.text,
         // 비교 대상은 번호로만 가리켜 본문이 두 번 저장되지 않게 한다.
@@ -1421,6 +1543,9 @@ export default function Home() {
         f: record.sourceFile,
         w: record.sourceRow,
         i: record.issues.map((issue) => [ruleIndex(issue), issue.index, issue.match]),
+        k: record.checkKey,
+        // 저장 시점의 확인 여부. 저장본 안에서 계속 표시하고 이어서 확인할 수 있다.
+        chk: checkedKeys.has(record.checkKey) ? 1 : 0,
       })),
     };
     // `</script>` 가 문자열 안에 들어가도 태그가 끊기지 않도록 막는다.
@@ -1531,8 +1656,16 @@ export default function Home() {
     .table-wrap { overflow-x:auto; }
     table { width:100%; min-width:1320px; border-collapse:collapse; table-layout:fixed; }
     th { padding:12px 14px; border-bottom:1px solid var(--line); background:#fdfcf7; color:#2a655e; font-size:12px; font-weight:800; text-align:left; }
-    th:nth-child(1){width:132px} th:nth-child(2){width:140px} th:nth-child(3){width:118px} th:nth-child(4){width:128px} th:nth-child(6){width:215px} th:nth-child(7){width:92px}
+    th.check-cell{width:46px} th:nth-child(2){width:132px} th:nth-child(3){width:140px} th:nth-child(4){width:118px} th:nth-child(5){width:128px} th:nth-child(7){width:215px} th:nth-child(8){width:92px}
     td { padding:15px 14px; border-bottom:1px solid #e3f0ec; vertical-align:middle; }
+    td.check-cell,th.check-cell { text-align:center; }
+    .check-cell input { width:19px; height:19px; accent-color:var(--brand-600); cursor:pointer; }
+    tr.row-checked td:not(.check-cell) { opacity:.45; }
+    tr.row-checked:hover td { opacity:1; }
+    .review-progress { color:var(--ink-soft); font-size:13px; }
+    .review-progress strong { color:var(--brand-700); }
+    .hide-checked-toggle { display:inline-flex; align-items:center; gap:7px; color:var(--ink-soft); cursor:pointer; font-size:13px; font-weight:700; white-space:nowrap; }
+    .hide-checked-toggle input { width:17px; height:17px; accent-color:var(--brand-600); cursor:pointer; }
     tbody tr:hover { background:#ffffff; }
     .status-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; font-size:12px; font-weight:800; white-space:nowrap; }
     .status-badge i { width:6px; height:6px; border-radius:50%; }
@@ -1685,20 +1818,23 @@ export default function Home() {
           </select>
           <select id="report-sort" class="snapshot-select" aria-label="정렬 방법">
             <option value="risk">유사도 높은 순</option>
+            <option value="class">학급·번호 순</option>
             <option value="name">이름 순</option>
             <option value="subject">${escapeHtml(categoryLabel)} 순</option>
           </select>
+          <label class="hide-checked-toggle"><input type="checkbox" id="report-hide-checked" />확인한 기록 숨기기</label>
         </div>
       </div>
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>점검 결과</th><th>학생 / 학급</th><th>${escapeHtml(categoryLabel)}</th><th>최대 유사도</th><th>${escapeHtml(contentLabel)}</th><th>기재요령 점검</th><th>상세</th></tr></thead>
+        <table class="has-check-column">
+          <thead><tr><th class="check-cell"></th><th>점검 결과</th><th>학생 / 학급</th><th>${escapeHtml(categoryLabel)}</th><th>최대 유사도</th><th>${escapeHtml(contentLabel)}</th><th>기재요령 점검</th><th>상세</th></tr></thead>
           <tbody id="report-body"></tbody>
         </table>
         <div id="report-empty" class="report-empty" hidden>조건에 맞는 기록이 없습니다. 검색어나 필터를 바꿔 보세요.</div>
       </div>
       <div class="table-footer">
         <span id="report-range">전체 ${orderedRecords.length.toLocaleString("ko-KR")}건</span>
+        <span id="report-progress" class="review-progress"></span>
         <span class="report-pager">
           <button type="button" id="report-prev" aria-label="이전 페이지">‹</button>
           <span id="report-page">1 / 1</span>
@@ -2216,6 +2352,10 @@ export default function Home() {
                 <h2>
                   기록별 비교 <em>{filteredRecords.length.toLocaleString("ko-KR")}</em>
                 </h2>
+                <p className="review-progress" aria-live="polite">
+                  확인 완료 <strong>{reviewedCount.toLocaleString("ko-KR")}</strong> /{" "}
+                  {records.length.toLocaleString("ko-KR")}건
+                </p>
               </div>
               <div className="results-actions">
                 <div className="search-box">
@@ -2262,22 +2402,35 @@ export default function Home() {
                 </select>
                 <select
                   value={sortMode}
-                  onChange={(event) =>
-                    changeSortMode(event.target.value as "risk" | "name" | "subject")
-                  }
+                  onChange={(event) => changeSortMode(event.target.value as SortMode)}
                   aria-label="정렬 방법"
                 >
                   <option value="risk">유사도 높은 순</option>
+                  <option value="class">학급·번호 순</option>
                   <option value="name">이름 순</option>
                   <option value="subject">{categoryLabel} 순</option>
                 </select>
+                <label className="hide-checked-toggle">
+                  <input
+                    type="checkbox"
+                    checked={hideChecked}
+                    onChange={(event) => {
+                      setHideChecked(event.target.checked);
+                      setPage(1);
+                    }}
+                  />
+                  확인한 기록 숨기기
+                </label>
               </div>
             </div>
 
             <div className="table-wrap">
-              <table>
+              <table className="has-check-column">
                 <thead>
                   <tr>
+                    <th className="check-cell">
+                      <span className="visually-hidden">확인 여부</span>
+                    </th>
                     <th>점검 결과</th>
                     <th>학생 / 학급</th>
                     <th>{categoryLabel}</th>
@@ -2292,8 +2445,17 @@ export default function Home() {
                 <tbody>
                   {visibleRecords.map((record) => {
                     const status = riskStatus(record, threshold);
+                    const isChecked = checkedKeys.has(record.checkKey);
                     return (
-                      <tr key={record.id}>
+                      <tr key={record.id} className={isChecked ? "row-checked" : ""}>
+                        <td className="check-cell">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleChecked(record.checkKey)}
+                            aria-label={`${record.name} ${record.subject} 확인 여부`}
+                          />
+                        </td>
                         <td>
                           <span className={`status-badge ${status}`}>
                             <i />
@@ -2575,9 +2737,35 @@ export default function Home() {
               <span>
                 원본: {selectedRecord.sourceFile} · {selectedRecord.sourceRow}행
               </span>
-              <button type="button" onClick={() => setSelectedRecord(null)}>
-                확인 완료
-              </button>
+              <div className="modal-nav" aria-label="기록 이동">
+                <button
+                  className="modal-nav-button"
+                  type="button"
+                  onClick={() => openNeighbor(-1)}
+                  disabled={selectedIndex <= 0}
+                  aria-label="이전 기록"
+                >
+                  <ChevronLeft size={16} />
+                  이전
+                </button>
+                <span className="modal-nav-position">
+                  {selectedIndex + 1} / {filteredRecords.length}
+                </span>
+                <button
+                  className="modal-nav-button"
+                  type="button"
+                  onClick={() => openNeighbor(1)}
+                  disabled={selectedIndex < 0 || selectedIndex >= filteredRecords.length - 1}
+                  aria-label="다음 기록"
+                >
+                  다음
+                  <ChevronRight size={16} />
+                </button>
+                <button className="modal-confirm" type="button" onClick={confirmAndAdvance}>
+                  <Check size={16} />
+                  {checkedKeys.has(selectedRecord.checkKey) ? "확인됨 · 다음" : "확인 완료 · 다음"}
+                </button>
+              </div>
             </div>
           </section>
         </div>

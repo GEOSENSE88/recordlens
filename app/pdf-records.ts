@@ -246,11 +246,44 @@ export async function parseStudentRecordPdf(
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
   }
 
-  const doc = await pdfjs.getDocument({
+  const task = pdfjs.getDocument({
     data: new Uint8Array(await file.arrayBuffer()),
     useSystemFonts: true,
     isEvalSupported: false,
-  }).promise;
+  });
+
+  // 나이스에서 저장한 PDF는 개인정보 보호 때문에 암호가 걸려 있는 경우가 많다.
+  // pdf.js가 암호를 요구하면 사용자에게 물어보고, 틀리면 다시 묻는다.
+  let passwordCancelled = false;
+  task.onPassword = (updatePassword: (value: string) => void, reason: number) => {
+    const retry = reason === 2; // pdf.js PasswordResponses.INCORRECT_PASSWORD
+    const answer = window.prompt(
+      `${retry ? "암호가 올바르지 않습니다.\n" : ""}'${file.name}' 은 암호가 걸린 PDF입니다.\n암호를 입력해 주세요.`,
+    );
+    if (answer === null || answer === "") {
+      passwordCancelled = true;
+      // 빈 값을 넘기면 pdf.js가 무한히 다시 묻는다. 일부러 틀린 값을 넣어 실패시킨다.
+      updatePassword(" cancelled");
+      return;
+    }
+    updatePassword(answer);
+  };
+
+  let doc: Awaited<typeof task.promise>;
+  try {
+    doc = await task.promise;
+  } catch (caught) {
+    const name = caught instanceof Error ? caught.name : "";
+    if (passwordCancelled || name === "PasswordException") {
+      throw new Error(
+        `'${file.name}' 은 암호가 걸린 PDF입니다. 암호를 입력하거나, 나이스에서 암호 없이 다시 저장해 주세요.`,
+      );
+    }
+    if (name === "InvalidPDFException") {
+      throw new Error(`'${file.name}' 은 손상되었거나 PDF 형식이 아닙니다. 파일을 다시 내려받아 주세요.`);
+    }
+    throw caught;
+  }
 
   const fallback = classFromFileName(file.name);
   const records: PdfStudentRecord[] = [];
@@ -275,14 +308,20 @@ export async function parseStudentRecordPdf(
     current = null;
   };
 
+  // 실패했을 때 원인을 구분해 알려주기 위한 집계.
+  let extractedChars = 0;
+  let sawPersonalSection = false;
+
   try {
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
       const page = await doc.getPage(pageNumber);
       const content = await page.getTextContent();
       const { lines } = cleanPage(pageNumber, content.items as TextItem[]);
       page.cleanup();
+      extractedChars += lines.reduce((sum, line) => sum + line.length, 0);
 
       if (lines.some((line) => PERSONAL_SECTION.test(line))) {
+        sawPersonalSection = true;
         flush();
         current = { header: readStudentHeader(lines), lines: [], page: pageNumber };
         continue;
@@ -299,6 +338,26 @@ export async function parseStudentRecordPdf(
     flush();
   } finally {
     await doc.destroy();
+  }
+
+  if (!records.length) {
+    if (extractedChars < 200) {
+      // 스캔(이미지)으로 만든 PDF는 글자 층이 없어 아무것도 읽히지 않는다.
+      throw new Error(
+        `'${file.name}' 에서 글자를 읽지 못했습니다. 스캔·촬영으로 만든 PDF는 지원하지 않습니다. ` +
+          "나이스에서 저장한 PDF나 엑셀(XLS data)을 사용해 주세요.",
+      );
+    }
+    if (!sawPersonalSection) {
+      throw new Error(
+        `'${file.name}' 은 학교생활기록부 형식이 아닌 것 같습니다. ` +
+          "나이스 `학생부 조회 및 출력`에서 저장한 학교생활기록부Ⅱ PDF를 올려 주세요.",
+      );
+    }
+    throw new Error(
+      `'${file.name}' 에서 세부능력 및 특기사항을 찾지 못했습니다. ` +
+        "교과학습발달상황이 포함된 학교생활기록부Ⅱ PDF인지 확인해 주세요.",
+    );
   }
 
   return records;
