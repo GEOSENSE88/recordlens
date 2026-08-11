@@ -1551,28 +1551,6 @@ export default function Home() {
     // `</script>` 가 문자열 안에 들어가도 태그가 끊기지 않도록 막는다.
     const payloadJson = JSON.stringify(payload).replace(/</g, "\\u003c");
 
-    const subjectItems = subjectSummaries
-      .slice(0, 5)
-      .map(
-        (summary) => `
-          <div class="subject-row">
-            <span>${escapeHtml(summary.subject)}</span>
-            <i><b style="width:${Math.max(
-              4,
-              ((summary.exact + summary.high) / Math.max(1, summary.total)) * 100,
-            )}%"></b></i>
-            <strong>${(summary.exact + summary.high).toLocaleString("ko-KR")}건</strong>
-          </div>`,
-      )
-      .join("");
-    const issueSummaryItems = (
-      ["typo", "symbol", "prohibited", "institution", "business", "person"] as InspectionIssueType[]
-    )
-      .map(
-        (type) =>
-          `<div class="audit-item ${type}"><span>${escapeHtml(INSPECTION_LABELS[type])}</span><strong>${issueCounts[type].toLocaleString("ko-KR")}</strong><small>건의 기록</small></div>`,
-      )
-      .join("");
     const html = `<!doctype html>
 <html lang="ko">
 <head>
@@ -1628,9 +1606,16 @@ export default function Home() {
     .threshold { margin-top:22px; padding-top:16px; border-top:1px solid #e3f0ec; }
     .threshold-label { display:flex; justify-content:space-between; color:#1c534d; font-size:13px; }
     .threshold-label strong { color:var(--brand-800); font-size:15px; }
-    .threshold-track { position:relative; height:5px; margin-top:13px; border-radius:99px; background:#f6fbf9; }
-    .threshold-track span { display:block; height:100%; border-radius:inherit; background:var(--brand-600); }
-    .threshold-track i { position:absolute; top:50%; width:15px; height:15px; border-radius:50%; background:var(--brand-600); transform:translate(-50%,-50%); }
+    #report-threshold { width:100%; margin-top:13px; accent-color:var(--brand-600); cursor:pointer; }
+    .range-note { display:flex; justify-content:space-between; margin-top:6px; color:#467d76; font-size:12px; }
+    /* 눌러서 거르는 요소들: 단추지만 원래 모양을 유지한다 */
+    button.legend-item, button.subject-row, button.audit-item { width:100%; font:inherit; text-align:left; cursor:pointer; }
+    button.legend-item, button.subject-row { border:0; }
+    button.subject-row { background:transparent; border-radius:10px; }
+    button.legend-item:hover, button.subject-row:hover { background:var(--brand-25); }
+    .legend-item.active { box-shadow:inset 0 0 0 1.5px var(--brand-400); background:var(--brand-25); }
+    .audit-item:hover { border-color:var(--brand-200); }
+    .audit-item.active { border-color:var(--brand-400); box-shadow:0 0 0 2px rgba(92,186,171,.28); }
     .subject-list { display:flex; flex-direction:column; gap:5px; margin-top:18px; }
     .subject-row { display:grid; grid-template-columns:118px 1fr 56px; align-items:center; gap:10px; padding:8px; }
     .subject-row > span { overflow:hidden; font-size:13px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
@@ -1765,38 +1750,39 @@ export default function Home() {
     </section>
     <section class="summary-grid" aria-label="점검 요약">
       <article class="summary-card primary"><div class="summary-icon">전체</div><span>전체 기록</span><strong>${records.length.toLocaleString("ko-KR")}</strong><small>${sourceFiles.length.toLocaleString("ko-KR")}개 원본 파일</small></article>
-      <article class="summary-card danger"><div class="summary-icon">!</div><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong><small>정규화 후 100% 같은 문장</small></article>
-      <article class="summary-card warning"><div class="summary-icon">≈</div><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong><small>${Math.round(threshold * 100)}% 이상 유사한 문장</small></article>
-      <article class="summary-card calm"><div class="summary-icon">✓</div><span>이상 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong><small>설정 기준 미만</small></article>
+      <article class="summary-card danger"><div class="summary-icon">!</div><span>완전 일치</span><strong id="r-sum-exact">${counts.exact.toLocaleString("ko-KR")}</strong><small>정규화 후 100% 같은 문장</small></article>
+      <article class="summary-card warning"><div class="summary-icon">≈</div><span>높은 유사도</span><strong id="r-sum-high">${counts.high.toLocaleString("ko-KR")}</strong><small id="r-sum-high-note">${Math.round(threshold * 100)}% 이상 유사한 문장</small></article>
+      <article class="summary-card calm"><div class="summary-icon">✓</div><span>이상 없음</span><strong id="r-sum-normal">${counts.normal.toLocaleString("ko-KR")}</strong><small>설정 기준 미만</small></article>
     </section>
     <section class="insight-grid">
       <article class="panel">
-        <div class="card-title-row"><div><span class="section-kicker">점검 분포</span><h2>위험도별 기록</h2></div><div class="issue-total">${checkedCount.toLocaleString("ko-KR")}건 확인</div></div>
+        <div class="card-title-row"><div><span class="section-kicker">점검 분포</span><h2>위험도별 기록</h2></div><div class="issue-total" id="r-flagged-chip">${checkedCount.toLocaleString("ko-KR")}건 확인</div></div>
         <div class="distribution-bar" aria-label="위험도 분포">
-          <span class="exact-fill" style="width:${(counts.exact / Math.max(1, records.length)) * 100}%"></span>
-          <span class="high-fill" style="width:${(counts.high / Math.max(1, records.length)) * 100}%"></span>
-          <span class="review-fill" style="width:${(counts.review / Math.max(1, records.length)) * 100}%"></span>
-          <span class="normal-fill" style="width:${(counts.normal / Math.max(1, records.length)) * 100}%"></span>
+          <span class="exact-fill" id="r-fill-exact" style="width:${(counts.exact / Math.max(1, records.length)) * 100}%"></span>
+          <span class="high-fill" id="r-fill-high" style="width:${(counts.high / Math.max(1, records.length)) * 100}%"></span>
+          <span class="review-fill" id="r-fill-review" style="width:${(counts.review / Math.max(1, records.length)) * 100}%"></span>
+          <span class="normal-fill" id="r-fill-normal" style="width:${(counts.normal / Math.max(1, records.length)) * 100}%"></span>
         </div>
         <div class="distribution-legend">
-          <div class="legend-item"><i class="legend-dot exact"></i><span>완전 일치</span><strong>${counts.exact.toLocaleString("ko-KR")}</strong></div>
-          <div class="legend-item"><i class="legend-dot high"></i><span>높은 유사도</span><strong>${counts.high.toLocaleString("ko-KR")}</strong></div>
-          <div class="legend-item"><i class="legend-dot review"></i><span>확인 필요</span><strong>${counts.review.toLocaleString("ko-KR")}</strong></div>
-          <div class="legend-item"><i class="legend-dot normal"></i><span>이상 없음</span><strong>${counts.normal.toLocaleString("ko-KR")}</strong></div>
+          <button type="button" class="legend-item" data-risk="exact"><i class="legend-dot exact"></i><span>완전 일치</span><strong id="r-legend-exact">${counts.exact.toLocaleString("ko-KR")}</strong></button>
+          <button type="button" class="legend-item" data-risk="high"><i class="legend-dot high"></i><span>높은 유사도</span><strong id="r-legend-high">${counts.high.toLocaleString("ko-KR")}</strong></button>
+          <button type="button" class="legend-item" data-risk="review"><i class="legend-dot review"></i><span>확인 필요</span><strong id="r-legend-review">${counts.review.toLocaleString("ko-KR")}</strong></button>
+          <button type="button" class="legend-item" data-risk="normal"><i class="legend-dot normal"></i><span>이상 없음</span><strong id="r-legend-normal">${counts.normal.toLocaleString("ko-KR")}</strong></button>
         </div>
         <div class="threshold">
-          <div class="threshold-label"><span>높은 유사도 기준</span><strong>${Math.round(threshold * 100)}%</strong></div>
-          <div class="threshold-track"><span style="width:${((threshold - 0.5) / 0.45) * 100}%"></span><i style="left:${((threshold - 0.5) / 0.45) * 100}%"></i></div>
+          <div class="threshold-label"><label for="report-threshold">높은 유사도 기준</label><strong id="r-threshold-label">${Math.round(threshold * 100)}%</strong></div>
+          <input type="range" id="report-threshold" min="0.5" max="0.95" step="0.05" value="${threshold}" aria-label="높은 유사도 기준" />
+          <div class="range-note"><span>넓게 보기 50%</span><span>엄격하게 95%</span></div>
         </div>
       </article>
       <article class="panel">
         <div class="card-title-row"><div><span class="section-kicker">${escapeHtml(categoryLabel)}별 현황</span><h2>우선 확인할 ${escapeHtml(categoryLabel)}</h2></div><span>▥</span></div>
-        <div class="subject-list">${subjectItems || `<p class="muted">${escapeHtml(categoryLabel)} 정보가 없습니다.</p>`}</div>
+        <div class="subject-list" id="r-subject-list"></div>
       </article>
     </section>
     <section class="audit-panel">
-      <header><div><span class="section-kicker">2026 학교생활기록부 기재요령</span><h2>기재요령·문장 점검</h2></div><p>자동 탐지는 보조 기능이며 허용 예외와 문맥은 최종 확인이 필요합니다.</p></header>
-      <div class="audit-grid">${issueSummaryItems}</div>
+      <header><div><span class="section-kicker">2026 학교생활기록부 기재요령</span><h2>기재요령·문장 점검</h2></div><p>항목을 누르면 해당 표현이 발견된 기록만 모아볼 수 있습니다.</p></header>
+      <div class="audit-grid" id="r-audit-grid"></div>
     </section>
     <section class="results-panel" id="results">
       <div class="results-heading">

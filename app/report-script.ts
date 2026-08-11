@@ -249,10 +249,92 @@ export const REPORT_SCRIPT = String.raw`
 
   records.forEach(function (record, index) {
     record.idx = index;
-    record.status = riskStatus(record);
     record.types = record.i.map(function (issue) { return rules[issue[0]].t; });
     record.hay = normalizeText(record.n + " " + record.c + " " + record.s + " " + record.t + " " + record.mn);
   });
+
+  /* ---- 위험도 분류와 상단 요약 (기준을 바꾸면 다시 계산한다) ---- */
+
+  function computeStatuses() {
+    records.forEach(function (record) { record.status = riskStatus(record); });
+  }
+
+  function setText(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  var ISSUE_TYPES = ["typo", "symbol", "prohibited", "institution", "business", "person"];
+  var ISSUE_LABELS = {
+    typo: "오탈자", symbol: "특수기호", prohibited: "기재금지어",
+    institution: "기관명", business: "상호명", person: "인물·강사명",
+  };
+
+  function renderSummary() {
+    var counts = { exact: 0, high: 0, review: 0, normal: 0 };
+    records.forEach(function (record) { counts[record.status] += 1; });
+    var total = Math.max(1, records.length);
+    var fmt = function (n) { return n.toLocaleString("ko-KR"); };
+
+    ["exact", "high", "review", "normal"].forEach(function (risk) {
+      setText("r-legend-" + risk, fmt(counts[risk]));
+      var fill = document.getElementById("r-fill-" + risk);
+      if (fill) fill.style.width = (counts[risk] / total) * 100 + "%";
+    });
+    setText("r-sum-exact", fmt(counts.exact));
+    setText("r-sum-high", fmt(counts.high));
+    setText("r-sum-normal", fmt(counts.normal));
+    setText("r-sum-high-note", Math.round(threshold * 100) + "% 이상 유사한 문장");
+    setText("r-threshold-label", Math.round(threshold * 100) + "%");
+    setText("r-flagged-chip", fmt(counts.exact + counts.high + counts.review) + "건 확인");
+
+    // 과목별 현황: 완전 일치·높은 유사도가 많은 순으로 다섯 개
+    var subjectList = document.getElementById("r-subject-list");
+    if (subjectList) {
+      var bySubject = {};
+      records.forEach(function (record) {
+        var entry = bySubject[record.s] || (bySubject[record.s] = { subject: record.s, total: 0, flagged: 0 });
+        entry.total += 1;
+        if (record.status === "exact" || record.status === "high") entry.flagged += 1;
+      });
+      var top = Object.keys(bySubject).map(function (key) { return bySubject[key]; })
+        .sort(function (a, b) { return b.flagged - a.flagged || b.total - a.total; })
+        .slice(0, 5);
+      subjectList.innerHTML = top.map(function (entry) {
+        return '<button type="button" class="subject-row" data-subject="' + escapeHtml(entry.subject) + '">' +
+          "<span>" + escapeHtml(entry.subject) + "</span>" +
+          '<i><b style="width:' + Math.max(4, (entry.flagged / Math.max(1, entry.total)) * 100) + '%"></b></i>' +
+          "<strong>" + fmt(entry.flagged) + "건</strong></button>";
+      }).join("") || '<p class="muted">과목 정보가 없습니다.</p>';
+    }
+
+    // 기재요령 항목별 건수 (기준과 무관하지만 함께 그린다)
+    var auditGrid = document.getElementById("r-audit-grid");
+    if (auditGrid && !auditGrid.childElementCount) {
+      var issueCounts = {};
+      records.forEach(function (record) {
+        var seen = {};
+        record.types.forEach(function (type) { if (!seen[type]) { seen[type] = 1; issueCounts[type] = (issueCounts[type] || 0) + 1; } });
+      });
+      auditGrid.innerHTML = ISSUE_TYPES.map(function (type) {
+        return '<button type="button" class="audit-item ' + type + '" data-issue="' + type + '">' +
+          "<span>" + ISSUE_LABELS[type] + "</span><strong>" + fmt(issueCounts[type] || 0) +
+          "</strong><small>건의 기록</small></button>";
+      }).join("");
+    }
+  }
+
+  /** 범례·기재요령 단추의 눌림 상태를 현재 필터와 맞춘다. */
+  function syncActive() {
+    var risk = riskSelect ? riskSelect.value : "all";
+    document.querySelectorAll(".legend-item").forEach(function (el) {
+      el.classList.toggle("active", el.getAttribute("data-risk") === risk);
+    });
+    var issue = issueSelect ? issueSelect.value : "all";
+    document.querySelectorAll(".audit-item").forEach(function (el) {
+      el.classList.toggle("active", el.getAttribute("data-issue") === issue);
+    });
+  }
 
   function rowHtml(record) {
     var status = record.status;
@@ -328,6 +410,7 @@ export const REPORT_SCRIPT = String.raw`
       progressLabel.textContent = "확인 완료 " + done.toLocaleString("ko-KR") + " / " +
         records.length.toLocaleString("ko-KR") + "건";
     }
+    syncActive();
   }
 
   function reset() { page = 1; apply(); }
@@ -337,6 +420,44 @@ export const REPORT_SCRIPT = String.raw`
   if (issueSelect) issueSelect.addEventListener("change", reset);
   if (sortSelect) sortSelect.addEventListener("change", reset);
   if (hideCheckedInput) hideCheckedInput.addEventListener("change", reset);
+
+  // 유사도 기준 슬라이더: 위험도를 다시 나누고 요약·표를 함께 갱신한다.
+  var thresholdInput = document.getElementById("report-threshold");
+  if (thresholdInput) {
+    thresholdInput.addEventListener("input", function () {
+      threshold = Number(thresholdInput.value);
+      computeStatuses();
+      renderSummary();
+      reset();
+    });
+  }
+
+  // 위험도 범례: 누르면 그 위험도만, 다시 누르면 전체.
+  document.addEventListener("click", function (event) {
+    var legend = event.target.closest ? event.target.closest("[data-risk]") : null;
+    if (legend && riskSelect) {
+      var risk = legend.getAttribute("data-risk");
+      riskSelect.value = riskSelect.value === risk ? "all" : risk;
+      reset();
+      return;
+    }
+    var audit = event.target.closest ? event.target.closest("[data-issue]") : null;
+    if (audit && issueSelect) {
+      var issue = audit.getAttribute("data-issue");
+      issueSelect.value = issueSelect.value === issue ? "all" : issue;
+      reset();
+      var results = document.getElementById("results");
+      if (results) results.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    var subjectButton = event.target.closest ? event.target.closest("[data-subject]") : null;
+    if (subjectButton && searchInput) {
+      searchInput.value = subjectButton.getAttribute("data-subject");
+      reset();
+      var panel = document.getElementById("results");
+      if (panel) panel.scrollIntoView({ behavior: "smooth" });
+    }
+  });
 
   // 표의 확인 체크박스: 표시를 저장하고 화면을 다시 그린다.
   document.addEventListener("change", function (event) {
@@ -454,6 +575,8 @@ export const REPORT_SCRIPT = String.raw`
     });
   });
 
+  computeStatuses();
+  renderSummary();
   apply();
 })();
 `;
