@@ -216,6 +216,8 @@ export const REPORT_SCRIPT = String.raw`
 
   var body = document.getElementById("report-body");
   var searchInput = document.getElementById("report-search");
+  var classSelect = document.getElementById("report-class");
+  var subjectSelect = document.getElementById("report-subject");
   var riskSelect = document.getElementById("report-risk");
   var issueSelect = document.getElementById("report-issue");
   var sortSelect = document.getElementById("report-sort");
@@ -377,11 +379,15 @@ export const REPORT_SCRIPT = String.raw`
 
   function apply() {
     var term = normalizeText(searchInput ? searchInput.value : "");
+    var classValue = classSelect ? classSelect.value : "all";
+    var subjectValue = subjectSelect ? subjectSelect.value : "all";
     var risk = riskSelect ? riskSelect.value : "all";
     var issue = issueSelect ? issueSelect.value : "all";
     var hide = Boolean(hideCheckedInput && hideCheckedInput.checked);
 
     matched = records.filter(function (record) {
+      if (classValue !== "all" && record.c !== classValue) return false;
+      if (subjectValue !== "all" && record.s !== subjectValue) return false;
       if (risk !== "all" && record.status !== risk) return false;
       if (issue !== "all" && record.types.indexOf(issue) < 0) return false;
       if (hide && checked[record.k]) return false;
@@ -418,6 +424,8 @@ export const REPORT_SCRIPT = String.raw`
   function reset() { page = 1; apply(); }
 
   if (searchInput) searchInput.addEventListener("input", reset);
+  if (classSelect) classSelect.addEventListener("change", reset);
+  if (subjectSelect) subjectSelect.addEventListener("change", reset);
   if (riskSelect) riskSelect.addEventListener("change", reset);
   if (issueSelect) issueSelect.addEventListener("change", reset);
   if (sortSelect) sortSelect.addEventListener("change", reset);
@@ -453,8 +461,8 @@ export const REPORT_SCRIPT = String.raw`
       return;
     }
     var subjectButton = event.target.closest ? event.target.closest("[data-subject]") : null;
-    if (subjectButton && searchInput) {
-      searchInput.value = subjectButton.getAttribute("data-subject");
+    if (subjectButton && subjectSelect) {
+      subjectSelect.value = subjectButton.getAttribute("data-subject");
       reset();
       var panel = document.getElementById("results");
       if (panel) panel.scrollIntoView({ behavior: "smooth" });

@@ -1068,6 +1068,9 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState<"all" | RiskStatus>("all");
   const [issueFilter, setIssueFilter] = useState<"all" | InspectionIssueType>("all");
+  /** 학급별·과목(활동 영역)별로 골라 보는 필터. "all"은 전체. */
+  const [classFilter, setClassFilter] = useState("all");
+  const [subjectFilter, setSubjectFilter] = useState("all");
   const [sortMode, setSortMode] = useState<SortMode>("risk");
   const [page, setPage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
@@ -1154,6 +1157,21 @@ export default function Home() {
     return [...map.values()].sort((a, b) => b.exact + b.high - (a.exact + a.high) || b.total - a.total);
   }, [records, threshold]);
 
+  const classOptions = useMemo(
+    () =>
+      [...new Set(records.map((record) => record.className))].sort((a, b) =>
+        a.localeCompare(b, "ko", { numeric: true }),
+      ),
+    [records],
+  );
+  const subjectOptions = useMemo(
+    () =>
+      [...new Set(records.map((record) => record.subject))].sort((a, b) =>
+        a.localeCompare(b, "ko"),
+      ),
+    [records],
+  );
+
   const filteredRecords = useMemo(() => {
     const term = normalizeText(search);
     const filtered = records.filter((record) => {
@@ -1162,6 +1180,8 @@ export default function Home() {
       if (issueFilter !== "all" && !record.issues.some((issue) => issue.type === issueFilter)) {
         return false;
       }
+      if (classFilter !== "all" && record.className !== classFilter) return false;
+      if (subjectFilter !== "all" && record.subject !== subjectFilter) return false;
       if (hideChecked && checkedKeys.has(record.checkKey)) return false;
       if (!term) return true;
       return normalizeText(
@@ -1182,7 +1202,18 @@ export default function Home() {
       if (sortMode === "subject") return a.subject.localeCompare(b.subject, "ko");
       return b.similarity - a.similarity || a.name.localeCompare(b.name, "ko");
     });
-  }, [checkedKeys, hideChecked, issueFilter, records, riskFilter, search, sortMode, threshold]);
+  }, [
+    checkedKeys,
+    classFilter,
+    hideChecked,
+    issueFilter,
+    records,
+    riskFilter,
+    search,
+    sortMode,
+    subjectFilter,
+    threshold,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const visibleRecords = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -1241,6 +1272,16 @@ export default function Home() {
 
   function changeIssueFilter(value: "all" | InspectionIssueType) {
     setIssueFilter(value);
+    setPage(1);
+  }
+
+  function changeClassFilter(value: string) {
+    setClassFilter(value);
+    setPage(1);
+  }
+
+  function changeSubjectFilter(value: string) {
+    setSubjectFilter(value);
     setPage(1);
   }
 
@@ -1377,105 +1418,75 @@ export default function Home() {
     setSearch("");
     setRiskFilter("all");
     setIssueFilter("all");
+    setClassFilter("all");
+    setSubjectFilter("all");
     setSelectedRecord(null);
     setPage(1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function exportWorkbook() {
-    const workbook = XLSX.utils.book_new();
-    const cleanedRows = [
-      ["학년 반", "학년", categoryLabel, "이름", contentLabel, "원본 파일", "원본 행"],
-      ...records.map((record) => [
-        record.className,
-        record.grade,
-        record.subject,
-        record.name,
-        record.text,
-        record.sourceFile,
-        record.sourceRow,
-      ]),
-    ];
-    const checkRows = [
-      [
-        "확인 여부",
-        "이름",
+  async function exportWorkbook() {
+    setProgress({ stage: "cleaning", value: 60, label: "엑셀 파일을 만들고 있습니다" });
+    try {
+      const { buildStyledWorkbook } = await import("./export-workbook");
+      const gradeNames = [...new Set(records.map((record) => record.grade))].sort((a, b) =>
+        a.localeCompare(b, "ko"),
+      );
+      const blob = await buildStyledWorkbook({
+        categoryLabel,
         contentLabel,
-        "최대 일치율",
-        "일치하는 문장(가장 유사한 행 기준)",
-        "일치 이름",
-        "점검 결과",
-        "기재요령 점검",
-        "발견 표현",
-        "근거",
-      ],
-      ...records.map((record) => [
-        checkedKeys.has(record.checkKey) ? "확인" : "",
-        record.name,
-        record.text,
-        record.similarity,
-        record.matchText,
-        record.matchName,
-        riskLabel(riskStatus(record, threshold)),
-        [...new Set(record.issues.map((issue) => issue.label))].join(", "),
-        record.issues.map((issue) => issue.match).join(", "),
-        [...new Set(record.issues.map((issue) => issue.reference))].join(", "),
-      ]),
-    ];
-    const grades = [...new Set(records.map((record) => record.grade))].sort((a, b) =>
-      a.localeCompare(b, "ko"),
-    );
-    const summaryRows = [
-      [categoryLabel, ...grades, "합계", "완전 일치", "높은 유사도", "확인 필요"],
-      ...subjectSummaries.map((summary) => [
-        summary.subject,
-        ...grades.map((grade) => summary.grades[grade] ?? 0),
-        summary.total,
-        summary.exact,
-        summary.high,
-        summary.review,
-      ]),
-    ];
+        gradeNames,
+        generatedAt:
+          reportTime ||
+          new Intl.DateTimeFormat("ko-KR", { dateStyle: "long", timeStyle: "short" }).format(
+            new Date(),
+          ),
+        threshold,
+        rows: records.map((record) => {
+          const status = riskStatus(record, threshold);
+          return {
+            checked: checkedKeys.has(record.checkKey),
+            className: record.className,
+            number: record.number,
+            name: record.name,
+            subject: record.subject,
+            text: record.text,
+            similarity: record.similarity,
+            matchText: record.matchText,
+            matchName: record.matchName,
+            statusKey: status,
+            statusLabel: riskLabel(status),
+            issueLabels: [...new Set(record.issues.map((issue) => issue.label))].join(", "),
+            issueMatches: record.issues.map((issue) => issue.match).join(", "),
+            issueRefs: [...new Set(record.issues.map((issue) => issue.reference))].join(", "),
+            sourceFile: record.sourceFile,
+            sourceRow: record.sourceRow,
+          };
+        }),
+        summaries: subjectSummaries.map((summary) => ({
+          subject: summary.subject,
+          grades: gradeNames.map((grade) => summary.grades[grade] ?? 0),
+          total: summary.total,
+          exact: summary.exact,
+          high: summary.high,
+          review: summary.review,
+        })),
+      });
 
-    const cleanedSheet = XLSX.utils.aoa_to_sheet(cleanedRows);
-    const checkSheet = XLSX.utils.aoa_to_sheet(checkRows);
-    const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
-    cleanedSheet["!cols"] = [
-      { wch: 13 },
-      { wch: 9 },
-      { wch: 18 },
-      { wch: 12 },
-      { wch: 90 },
-      { wch: 30 },
-      { wch: 10 },
-    ];
-    checkSheet["!cols"] = [
-      { wch: 9 },
-      { wch: 12 },
-      { wch: 75 },
-      { wch: 14 },
-      { wch: 75 },
-      { wch: 12 },
-      { wch: 14 },
-      { wch: 24 },
-      { wch: 40 },
-      { wch: 28 },
-    ];
-    summarySheet["!cols"] = Array.from({ length: summaryRows[0].length }, (_, index) => ({
-      wch: index === 0 ? 20 : 13,
-    }));
-
-    for (let row = 2; row <= records.length + 1; row += 1) {
-      // 확인 여부 열이 앞에 붙으면서 일치율은 D열이 되었다.
-      const cell = checkSheet[`D${row}`];
-      if (cell) cell.z = "0%";
+      const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `RecordLENS_종합점검결과_${date}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch {
+      setError("엑셀 파일을 만들지 못했습니다. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+    } finally {
+      setProgress(null);
     }
-
-    XLSX.utils.book_append_sheet(workbook, cleanedSheet, "특기사항 정리");
-    XLSX.utils.book_append_sheet(workbook, checkSheet, "종합점검");
-    XLSX.utils.book_append_sheet(workbook, summarySheet, "분석자료");
-    const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-    XLSX.writeFile(workbook, `RecordLENS_종합점검결과_${date}.xlsx`, { compression: true });
   }
 
   function exportHtmlReport() {
@@ -1790,6 +1801,20 @@ export default function Home() {
         <div><span class="section-kicker">상세 점검 결과</span><h2>기록별 비교 <em id="visible-count">${orderedRecords.length.toLocaleString("ko-KR")}</em></h2></div>
         <div class="snapshot-controls">
           <input id="report-search" class="snapshot-search" type="search" placeholder="이름, 학급, ${escapeHtml(categoryLabel)}, 내용 검색" aria-label="점검 결과 검색" />
+          <select id="report-class" class="snapshot-select" aria-label="학급 필터">
+            <option value="all">전체 학급</option>
+            ${[...new Set(orderedRecords.map((record) => record.className))]
+              .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }))
+              .map((className) => `<option value="${escapeHtml(className)}">${escapeHtml(className)}</option>`)
+              .join("")}
+          </select>
+          <select id="report-subject" class="snapshot-select" aria-label="${escapeHtml(categoryLabel)} 필터">
+            <option value="all">전체 ${escapeHtml(categoryLabel)}</option>
+            ${[...new Set(orderedRecords.map((record) => record.subject))]
+              .sort((a, b) => a.localeCompare(b, "ko"))
+              .map((subject) => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`)
+              .join("")}
+          </select>
           <select id="report-risk" class="snapshot-select" aria-label="위험도 필터">
             <option value="all">전체 위험도</option>
             <option value="exact">완전 일치</option>
@@ -2279,7 +2304,7 @@ export default function Home() {
                       type="button"
                       key={summary.subject}
                       onClick={() => {
-                        changeSearch(summary.subject);
+                        changeSubjectFilter(summary.subject);
                         document.getElementById("results")?.scrollIntoView({ behavior: "smooth" });
                       }}
                     >
@@ -2363,6 +2388,30 @@ export default function Home() {
                     </button>
                   )}
                 </div>
+                <select
+                  value={classFilter}
+                  onChange={(event) => changeClassFilter(event.target.value)}
+                  aria-label="학급 필터"
+                >
+                  <option value="all">전체 학급</option>
+                  {classOptions.map((className) => (
+                    <option value={className} key={className}>
+                      {className}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={subjectFilter}
+                  onChange={(event) => changeSubjectFilter(event.target.value)}
+                  aria-label={`${categoryLabel} 필터`}
+                >
+                  <option value="all">전체 {categoryLabel}</option>
+                  {subjectOptions.map((subject) => (
+                    <option value={subject} key={subject}>
+                      {subject}
+                    </option>
+                  ))}
+                </select>
                 <select
                   value={riskFilter}
                   onChange={(event) =>
