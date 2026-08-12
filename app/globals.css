@@ -142,6 +142,19 @@ button {
   letter-spacing: 0.06em;
 }
 
+.topbar-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.maker-credit {
+  color: var(--brand-800);
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .privacy-badge {
   display: inline-flex;
   align-items: center;
@@ -2250,6 +2263,10 @@ footer {
 
   .privacy-badge span {
     display: none;
+  }
+
+  .maker-credit {
+    font-size: 13px;
   }
 
   .privacy-badge {

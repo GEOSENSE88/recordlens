@@ -317,9 +317,9 @@ export const REPORT_SCRIPT = String.raw`
         record.types.forEach(function (type) { if (!seen[type]) { seen[type] = 1; issueCounts[type] = (issueCounts[type] || 0) + 1; } });
       });
       auditGrid.innerHTML = ISSUE_TYPES.map(function (type) {
-        return '<button type="button" class="audit-item ' + type + '" data-issue="' + type + '">' +
+        return '<button type="button" class="audit-item" data-issue="' + type + '">' +
           "<span>" + ISSUE_LABELS[type] + "</span><strong>" + fmt(issueCounts[type] || 0) +
-          "</strong><small>건의 기록</small></button>";
+          "건</strong></button>";
       }).join("");
     }
   }
@@ -338,12 +338,14 @@ export const REPORT_SCRIPT = String.raw`
 
   function rowHtml(record) {
     var status = record.status;
+    // 앱과 같은 칩: 항목 이름만 보이고, 발견 표현과 이유는 마우스를 올리면 나온다.
     var pills = record.i.length
       ? record.i.slice(0, 3).map(function (issue) {
           var rule = rules[issue[0]];
-          return '<span class="' + rule.t + '">' + escapeHtml(rule.l) + " · " + escapeHtml(issue[2]) + "</span>";
-        }).join("") + (record.i.length > 3 ? "<small>외 " + (record.i.length - 3) + "건</small>" : "")
-      : "<small>발견 없음</small>";
+          return '<span class="inspection-chip ' + rule.s + '" title="' +
+            escapeHtml(issue[2] + ": " + rule.g) + '">' + escapeHtml(rule.l) + "</span>";
+        }).join("") + (record.i.length > 3 ? "<small>+" + (record.i.length - 3) + "</small>" : "")
+      : '<span class="muted-inline">없음</span>';
     var detail = record.m >= 0 || record.i.length
       ? '<a class="compare-button" href="#results" data-open="' + record.idx + '">상세 <b>›</b></a>'
       : '<span class="compare-button disabled">상세</span>';
@@ -356,7 +358,7 @@ export const REPORT_SCRIPT = String.raw`
       '<td><strong class="similarity-number ' + status + '">' + formatPercent(record.sim) + "</strong>" +
       (record.mn ? '<span class="muted">↔ ' + escapeHtml(record.mn) + "</span>" : "") + "</td>" +
       '<td><p class="record-preview">' + inspectionHtml(record.t, record.i) + "</p></td>" +
-      '<td><div class="issue-pills">' + pills + "</div></td>" +
+      '<td><div class="record-issues">' + pills + "</div></td>" +
       "<td>" + detail + "</td>" +
       "</tr>";
   }

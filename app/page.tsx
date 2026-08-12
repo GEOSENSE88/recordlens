@@ -1569,6 +1569,7 @@ export default function Home() {
     .brand strong { align-self:end; font-size:15px; }
     .brand small { align-self:start; color:#3b7871; font-size:12px; }
     .topbar > span { color:#1c534d; font-size:13px; }
+    .topbar .maker-credit { color:var(--brand-800); font-weight:800; }
     .report-main { width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:36px 0 80px; }
     .report-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:30px; padding:28px 0 32px; }
     .eyebrow { color:var(--brand-800); font-size:13px; font-weight:800; }
@@ -1614,8 +1615,7 @@ export default function Home() {
     button.subject-row { background:transparent; border-radius:10px; }
     button.legend-item:hover, button.subject-row:hover { background:var(--brand-25); }
     .legend-item.active { box-shadow:inset 0 0 0 1.5px var(--brand-400); background:var(--brand-25); }
-    .audit-item:hover { border-color:var(--brand-200); }
-    .audit-item.active { border-color:var(--brand-400); box-shadow:0 0 0 2px rgba(92,186,171,.28); }
+    .audit-item.active { box-shadow:0 0 0 2px rgba(92,186,171,.28); }
     .subject-list { display:flex; flex-direction:column; gap:5px; margin-top:18px; }
     .subject-row { display:grid; grid-template-columns:118px 1fr 56px; align-items:center; gap:10px; padding:8px; }
     .subject-row > span { overflow:hidden; font-size:13px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
@@ -1627,11 +1627,11 @@ export default function Home() {
     .audit-panel h2 { margin:5px 0 0; font-size:21px; }
     .audit-panel header p { margin:0; color:#2a655e; font-size:12px; }
     .audit-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:9px; }
-    .audit-item { padding:14px; border:1px solid #e3f0ec; border-radius:12px; background:#ffffff; }
-    .audit-item span { display:block; color:#1c534d; font-size:12px; font-weight:800; }
-    .audit-item strong { display:inline-block; margin-top:5px; color:var(--brand-900); font-size:24px; }
-    .audit-item small { margin-left:4px; color:#467d76; font-size:12px; }
-    .audit-item.prohibited { border-color:#f4cdc0; background:#fdece6; }
+    /* 기재요령 카드: 앱과 같은 모양(이름 왼쪽, 건수 오른쪽 한 줄) */
+    .audit-item { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border:1px solid #e3f0ec; border-radius:11px; background:#ffffff; color:#1c534d; font-size:13px; }
+    .audit-item strong { color:var(--brand-900); font-size:15px; white-space:nowrap; }
+    .audit-item:hover, .audit-item.active { border-color:#a8ded6; background:#fdfcf7; color:var(--brand-800); }
+    .audit-disclaimer { margin:14px 0 0; color:#3b7871; font-size:13px; }
     .results-panel { margin-top:16px; overflow:hidden; }
     .results-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:23px 25px; border-bottom:1px solid var(--line); }
     .results-heading h2 em { margin-left:5px; color:var(--brand-800); font-size:16px; font-style:normal; }
@@ -1639,9 +1639,9 @@ export default function Home() {
     .snapshot-search,.snapshot-select { height:42px; padding:0 12px; border:1px solid var(--line); border-radius:10px; background:#ffffff; color:#2a655e; font-size:13px; line-height:36px; }
     .snapshot-search { width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .table-wrap { overflow-x:auto; }
-    table { width:100%; min-width:1320px; border-collapse:collapse; table-layout:fixed; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; }
     th { padding:12px 14px; border-bottom:1px solid var(--line); background:#fdfcf7; color:#2a655e; font-size:12px; font-weight:800; text-align:left; }
-    th.check-cell{width:46px} th:nth-child(2){width:132px} th:nth-child(3){width:140px} th:nth-child(4){width:118px} th:nth-child(5){width:128px} th:nth-child(7){width:215px} th:nth-child(8){width:92px}
+    th.check-cell{width:46px} th:nth-child(2){width:128px} th:nth-child(3){width:138px} th:nth-child(4){width:112px} th:nth-child(5){width:124px} th:nth-child(7){width:200px} th:nth-child(8){width:96px}
     td { padding:15px 14px; border-bottom:1px solid #e3f0ec; vertical-align:middle; }
     td.check-cell,th.check-cell { text-align:center; }
     .check-cell input { width:19px; height:19px; accent-color:var(--brand-600); cursor:pointer; }
@@ -1662,16 +1662,16 @@ export default function Home() {
     .similarity-number { font-size:17px; } .similarity-number.exact { color:var(--danger); } .similarity-number.high { color:var(--warning); } .similarity-number.review { color:var(--review); } .similarity-number.normal { color:var(--brand-800); }
     .muted { display:block; margin-top:4px; overflow:hidden; color:#3b7871; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
     .subject-chip { display:inline-block; max-width:100%; overflow:hidden; padding:5px 8px; border-radius:7px; background:#fdfcf7; color:#14403b; font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
-    .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#14403b; font-size:13px; line-height:1.75; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+    .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#14403b; font-size:13px; line-height:1.65; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
     .inspection-text-highlight { margin:0 1px; padding:1px 2px; border-radius:4px; background:#fbf1d9; color:#8f6410; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     .inspection-text-highlight.prohibited { background:#fdece6; color:#9c3822; font-weight:800; }
     .inspection-text-highlight.institution,.inspection-text-highlight.business,.inspection-text-highlight.person { background:#fbf1d9; color:#8f6410; font-weight:800; }
     .inspection-text-highlight.typo,.inspection-text-highlight.symbol { background:#eaf0f9; color:#375075; font-weight:800; }
-    .issue-pills { display:flex; align-items:flex-start; flex-direction:column; gap:4px; }
-    .issue-pills span { max-width:100%; overflow:hidden; padding:4px 6px; border-radius:6px; background:#eaf0f9; color:#45638f; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-    .issue-pills span.prohibited { background:#fdece6; color:#b8442a; }
-    .issue-pills span.institution,.issue-pills span.business,.issue-pills span.person { background:#fbf1d9; color:#8f6410; }
-    .issue-pills small { color:#467d76; font-size:12px; }
+    /* 기재요령 칩: 앱과 같은 모양(항목 이름만, 심각도 색) */
+    .record-issues { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
+    .inspection-chip { display:inline-flex; align-items:center; padding:4px 6px; border-radius:6px; background:#fbf1d9; color:#8f6410; font-size:12px; font-weight:800; white-space:nowrap; }
+    .inspection-chip.danger { background:#fdece6; color:#b8442a; }
+    .record-issues small, .muted-inline { color:#3b7871; font-size:12px; }
     .compare-button { display:inline-flex; align-items:center; gap:3px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--brand-900); font-size:12px; font-weight:800; text-decoration:none; }
     .compare-button b { font-size:17px; } .compare-button.disabled { color:#467d76; }
     .table-footer { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 24px; color:#2a655e; font-size:13px; }
@@ -1737,7 +1737,7 @@ export default function Home() {
 <body>
   <header class="topbar">
     <div class="brand">${brandMarkHtml}<strong>Record LENS</strong><small>학교생활기록부 종합점검 · 2026 기재요령 기반</small></div>
-    <span>저장된 결과 파일 · 학생 기록을 안전하게 보관해 주세요</span>
+    <span><b class="maker-credit">제작: 산남고 이성훈</b> · 저장된 결과 파일 · 학생 기록을 안전하게 보관해 주세요</span>
   </header>
   <main class="report-main">
     <section class="report-hero">
@@ -1781,8 +1781,9 @@ export default function Home() {
       </article>
     </section>
     <section class="audit-panel">
-      <header><div><span class="section-kicker">2026 학교생활기록부 기재요령</span><h2>기재요령·문장 점검</h2></div><p>항목을 누르면 해당 표현이 발견된 기록만 모아볼 수 있습니다.</p></header>
+      <header><div><span class="section-kicker">2026 학교생활기록부 기재요령 기반</span><h2>기재요령 보조 점검</h2></div><p>항목을 누르면 해당 표현이 발견된 기록만 모아볼 수 있습니다.</p></header>
       <div class="audit-grid" id="r-audit-grid"></div>
+      <p class="audit-disclaimer">자동 탐지는 확인이 필요한 후보를 찾는 기능입니다. 문맥, 허용 예외, 고유명사 여부는 기재요령 원문과 대조하여 최종 판단해 주세요.</p>
     </section>
     <section class="results-panel" id="results">
       <div class="results-heading">
@@ -1869,9 +1870,12 @@ export default function Home() {
             <small>학교생활기록부 종합점검</small>
           </span>
         </button>
-        <div className="privacy-badge">
-          <LockKeyhole size={15} />
-          <span>파일은 이 기기에서만 처리됩니다</span>
+        <div className="topbar-side">
+          <span className="maker-credit">제작: 산남고 이성훈</span>
+          <div className="privacy-badge">
+            <LockKeyhole size={15} />
+            <span>파일은 이 기기에서만 처리됩니다</span>
+          </div>
         </div>
       </header>
 
