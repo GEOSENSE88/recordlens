@@ -144,6 +144,8 @@ test("keeps bare mock-exam mentions but flags their scores", () => {
   for (const text of [
     "모의고사 기출 문항을 변형하여 탐구함.",
     "전국연합학력평가 문항을 분석하고 풀이 전략을 발표함.",
+    // 백분위는 통계 탐구에서 정상적으로 쓰인다.
+    "설문 결과를 백분위로 환산하여 분포를 비교함.",
   ]) {
     assert.equal(
       inspectRecordText(text).some((issue) => issue.label === "시험·성적"),
