@@ -119,7 +119,6 @@ const INSPECTION_TYPES: InspectionIssueType[] = [
   "prohibited",
   "institution",
   "business",
-  "person",
 ];
 
 /**
@@ -1113,7 +1112,7 @@ export default function Home() {
           }
           return accumulator;
         },
-        { typo: 0, symbol: 0, prohibited: 0, institution: 0, business: 0, person: 0 } as Record<
+        { typo: 0, symbol: 0, prohibited: 0, institution: 0, business: 0 } as Record<
           InspectionIssueType,
           number
         >,
@@ -1637,7 +1636,7 @@ export default function Home() {
     .audit-panel header { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:16px; }
     .audit-panel h2 { margin:5px 0 0; font-size:21px; }
     .audit-panel header p { margin:0; color:#2a655e; font-size:12px; }
-    .audit-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:9px; }
+    .audit-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:9px; }
     /* 기재요령 카드: 앱과 같은 모양(이름 왼쪽, 건수 오른쪽 한 줄) */
     .audit-item { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:8px; padding:12px 14px; border:1px solid #e3f0ec; border-radius:11px; background:#ffffff; color:#1c534d; font-size:13px; }
     .audit-item strong { color:var(--brand-900); font-size:15px; white-space:nowrap; }
@@ -1676,7 +1675,7 @@ export default function Home() {
     .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#14403b; font-size:13px; line-height:1.65; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
     .inspection-text-highlight { margin:0 1px; padding:1px 2px; border-radius:4px; background:#fbf1d9; color:#8f6410; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     .inspection-text-highlight.prohibited { background:#fdece6; color:#9c3822; font-weight:800; }
-    .inspection-text-highlight.institution,.inspection-text-highlight.business,.inspection-text-highlight.person { background:#fbf1d9; color:#8f6410; font-weight:800; }
+    .inspection-text-highlight.institution,.inspection-text-highlight.business { background:#fbf1d9; color:#8f6410; font-weight:800; }
     .inspection-text-highlight.typo,.inspection-text-highlight.symbol { background:#eaf0f9; color:#375075; font-weight:800; }
     /* 기재요령 칩: 앱과 같은 모양(항목 이름만, 심각도 색) */
     .record-issues { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }

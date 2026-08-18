@@ -101,3 +101,41 @@ test("does not split the 개인별 세특 block again on a repeated marker", () 
   );
   assert.match(segments[1].body, /결과를 발표함/);
 });
+
+test("splits subjects even when spacing differs from the list", () => {
+  // PDF는 줄바꿈에서 공백이 사라져 `국제 관계와국제기구:` 같은 변형이 생긴다.
+  const text =
+    "세계 문제와 미래 사회: 세계문제 토론 활동에서 종자산업을 분석함." +
+    "국제 관계와국제기구: 국제기구의 행정적 접근을 재해석함.";
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["세계 문제와 미래 사회", "국제 관계와국제기구"],
+  );
+});
+
+test("recognises single-student minority subjects from the built-in list", () => {
+  // 한 명만 듣는 과목은 등장 횟수 기준(2회)에 못 미치므로 목록에 미리 들어 있어야 한다.
+  const text = "문학: 작품을 분석함.국제법: 국제 분쟁 사례를 조사함.재배: 작물 재배 실습에 참여함.";
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["문학", "국제법", "재배"],
+  );
+});
+
+test("catches the newer 개인별 세특 opening phrases", () => {
+  for (const opener of [
+    "교과융합탐구 프로그램 '배움 너머'에서 항암 치료를 탐구함.",
+    "교과 융합 탐구 활동에서 주제를 정함.",
+    "융합수업 탐구활동에서 자료를 수합함.",
+  ]) {
+    const text = "영어 독해와 작문: 영시를 감상하고 협력적으로 소통함." + opener;
+    const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+    assert.deepEqual(
+      segments.map((segment) => segment.subject),
+      ["영어 독해와 작문", "개인별 세특"],
+      opener.slice(0, 16) + "… 를 개인별 세특으로 나누지 못했습니다.",
+    );
+  }
+});

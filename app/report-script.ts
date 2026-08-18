@@ -266,10 +266,10 @@ export const REPORT_SCRIPT = String.raw`
     if (el) el.textContent = value;
   }
 
-  var ISSUE_TYPES = ["typo", "symbol", "prohibited", "institution", "business", "person"];
+  var ISSUE_TYPES = ["typo", "symbol", "prohibited", "institution", "business"];
   var ISSUE_LABELS = {
     typo: "오탈자", symbol: "특수기호", prohibited: "기재금지어",
-    institution: "기관명", business: "상호명", person: "인물·강사명",
+    institution: "기관명", business: "상호명",
   };
 
   function renderSummary() {

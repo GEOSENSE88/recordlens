@@ -81,6 +81,38 @@ export const KNOWN_SUBJECTS = new Set([
   "윤리와 사상",
   "한국지리",
   "모의고사",
+  // 소인수·공동교육과정·위탁교육 과목. 한 학교에 한 명만 듣는 경우가 많아
+  // 자동 탐지 기준(2회 이상)에 걸리지 않으므로 미리 등록해 둔다.
+  "국제 관계와 국제기구",
+  "국제법",
+  "국제 정치",
+  "국제 경제",
+  "세계지리",
+  "여행지리",
+  "수학과제 탐구",
+  "생명윤리",
+  "재배",
+  "원예",
+  "화훼 장식 기초",
+  "농업 기초 기술",
+  "창업 일반",
+  "사무 관리",
+  "전공 기초 프랑스어",
+  "프랑스어Ⅰ",
+  "프랑스어 회화Ⅰ",
+  "독일어Ⅰ",
+  "스페인어Ⅰ",
+  "체육 전공 실기 기초",
+  "체육 전공 실기 심화",
+  "음악 전공 실기",
+  "미술 전공 실기",
+  "항공기 일반",
+  "공학 일반",
+  "지식 재산 일반",
+  "인공지능 기초",
+  "인공지능 수학",
+  "융합과학",
+  "과학사",
 ]);
 
 /** 마침표 뒤 공백은 있어도 없어도 되고, 과목명에는 유니코드 로마숫자를 허용한다. */
@@ -106,38 +138,55 @@ export function isSubjectCandidate(value: string) {
   return true;
 }
 
+/** 띄어쓰기 차이를 무시하고 같은 이름으로 묶기 위한 열쇠. */
+function spacelessKey(value: string) {
+  return value.replace(/\s+/g, "");
+}
+
+const KNOWN_SUBJECT_KEYS = new Set([...KNOWN_SUBJECTS].map(spacelessKey));
+
 /**
  * 세특 본문들을 훑어 이 파일에서 쓰인 과목 이름을 추린다.
  * 셀 맨 앞에 나왔거나 두 번 이상 등장한 이름만 과목으로 인정한다.
+ *
+ * 같은 과목이 `세계 문제와 미래 사회`, `세계문제와 미래사회`처럼 띄어쓰기만
+ * 다르게 적히는 일이 잦다(PDF는 줄바꿈에서 공백이 사라지기도 한다).
+ * 띄어쓰기를 무시한 열쇠로 함께 세어, 변형이 흩어져 기준(2회)에 못 미치는
+ * 일이 없게 한다.
  */
 export function subjectNamesFromTexts(texts: string[]) {
   const counts = new Map<string, number>();
   const atCellStart = new Set<string>();
+  const displayName = new Map<string, string>();
 
   for (const text of texts) {
     SUBJECT_CANDIDATE_EXPRESSION.lastIndex = 0;
     for (const match of text.matchAll(SUBJECT_CANDIDATE_EXPRESSION)) {
       const candidate = collapse(match[1]);
       if (!isSubjectCandidate(candidate)) continue;
-      counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
+      const key = spacelessKey(candidate);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      if (!displayName.has(key)) displayName.set(key, candidate);
       if (
         match.index === 0 ||
         /^\([12]학기\)\s*/.test(text) ||
         text.slice(0, match.index).trim() === ""
       ) {
-        atCellStart.add(candidate);
+        atCellStart.add(key);
       }
     }
   }
 
-  return [...new Set([...KNOWN_SUBJECTS, ...counts.keys()])]
+  const detected = [...counts.keys()]
     .filter(
-      (candidate) =>
-        KNOWN_SUBJECTS.has(candidate) ||
-        atCellStart.has(candidate) ||
-        (counts.get(candidate) ?? 0) >= 2,
+      (key) =>
+        !KNOWN_SUBJECT_KEYS.has(key) && (atCellStart.has(key) || (counts.get(key) ?? 0) >= 2),
     )
-    .sort((a, b) => b.length - a.length);
+    .map((key) => displayName.get(key) ?? key);
+
+  return [...KNOWN_SUBJECTS, ...detected].sort(
+    (a, b) => spacelessKey(b).length - spacelessKey(a).length,
+  );
 }
 
 export type SubjectSegment = {
@@ -152,9 +201,14 @@ export const PERSONAL_RECORD_SUBJECT = "개인별 세특";
  * 개인별 세특은 과목 이름 없이 앞 과목 뒤에 그대로 이어 붙는다.
  * NEIS가 경계를 표시해 주지 않으므로, 이 구간이 실제로 자주 시작하는 말로 자른다.
  * `자율 탐구`처럼 일반 서술에도 흔히 나오는 말은 넣지 않았다.
+ *
+ * 실제 파일에서 확인한 시작 표현
+ *   수업량 유연화에 따른 … / 수업량 유연화 기간 …
+ *   교과 융합 수업 탐구활동에서 … / 교과 융합수업 … / 교과융합탐구 프로그램 '배움 너머' …
+ *   융합수업 탐구활동에서 …  (앞의 `교과`가 줄바꿈에서 떨어져 나간 모양)
  */
 const PERSONAL_RECORD_EXPRESSION =
-  /(?:^|[.!?]\s*)(수업량\s*유연화|학교\s*자율\s*과정|진로\s*연계\s*교과\s*융합|교과\s*융합\s*수업)/gu;
+  /(?:^|[.!?]\s*)(수업량\s*유연화|학교\s*자율\s*과정|진로\s*연계\s*교과\s*융합|교과\s*융합\s*(?:수업|탐구)|융합\s*수업\s*탐구)/gu;
 
 type Boundary = {
   /** 이 조각이 시작하는 위치. 앞 조각은 여기서 끝난다. */
@@ -176,9 +230,16 @@ export function splitSubjectSegments(
 
   if (subjects.length) {
     // 긴 이름을 먼저 시도해야 `수학Ⅰ`이 `수학`으로 잘리지 않는다.
-    const ordered = [...subjects].sort((left, right) => right.length - left.length);
+    const ordered = [...subjects].sort(
+      (left, right) => spacelessKey(right).length - spacelessKey(left).length,
+    );
+    // 글자 사이에 \s* 를 끼워, 본문의 띄어쓰기가 목록과 달라도 잘리게 한다.
+    // (`국제 관계와국제기구:` 처럼 PDF 줄바꿈에서 공백이 사라진 경우까지 잡는다.)
+    const flexible = ordered.map((name) =>
+      spacelessKey(name).split("").map(escapeRegExp).join("\\s*"),
+    );
     const expression = new RegExp(
-      `(?:\\([12]학기\\)\\s*)?(${ordered.map(escapeRegExp).join("|")}):\\s*`,
+      `(?:\\([12]학기\\)\\s*)?(${flexible.join("|")}):\\s*`,
       "gu",
     );
     for (const match of text.matchAll(expression)) {

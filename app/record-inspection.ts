@@ -3,8 +3,7 @@ export type InspectionIssueType =
   | "symbol"
   | "prohibited"
   | "institution"
-  | "business"
-  | "person";
+  | "business";
 
 export type InspectionIssue = {
   type: InspectionIssueType;
@@ -67,7 +66,10 @@ const PROHIBITED_RULES: TextRule[] = [
     severity: "danger",
   },
   {
-    expression: /특허|실용신안|상표\s*(?:출원|등록)|디자인\s*(?:출원|등록)/gu,
+    // `특허` 단순 언급(예: 종자 특허를 둘러싼 논쟁을 탐구함)은 지재권 실적이 아니므로
+    // 출원·등록·취득이 함께 있을 때만 잡는다.
+    expression:
+      /(?:특허|실용신안)\s*권?[을를]?\s*(?:출원|등록|취득)|상표\s*(?:출원|등록)|디자인\s*(?:출원|등록)/gu,
     label: "지식재산권",
     guidance: "특허·실용신안·상표·디자인 등의 출원 또는 등록 사실은 기재할 수 없습니다.",
     reference: "2026 기재요령 p.18",
@@ -175,10 +177,9 @@ const SPECIFIC_INSTITUTIONS = [
   "특허청",
   "수사청",
   "질병관리청",
-  "교육청",
+  // `교육부`, `교육청` 은 교육 관련 기관이라 세특에 정상적으로 나오므로 잡지 않는다.
   "식품의약품안전처",
   "식약처",
-  "교육부",
   "환경부",
   "보건복지부",
   "과학기술정보통신부",
@@ -428,19 +429,8 @@ function exactEntityExpression(values: string[], caseSensitive = false) {
 const SPECIFIC_INSTITUTION_EXPRESSION = exactEntityExpression(SPECIFIC_INSTITUTIONS);
 const INSTITUTION_ACRONYM_EXPRESSION = exactEntityExpression(INSTITUTION_ACRONYMS, true);
 const BUSINESS_ACRONYM_EXPRESSION = exactEntityExpression(BUSINESS_ACRONYMS, true);
-/**
- * 외부 강사·교수처럼 특정 인물의 실명을 찾는다.
- *
- * 앞부분을 실제 성씨로 묶어 두는 것이 핵심이다. 그냥 `한글 2~4자 + 직함`으로 잡으면
- * `화학 연구원`, `미래 건축가`, `영화 감독`처럼 진로 희망을 적은 표현이 전부 걸려든다.
- * 직함 목록에서도 직업 이름으로 더 자주 쓰이는 말(연구원·감독·변호사 등)은 뺐다.
- * `장군`, `선생`처럼 역사 인물에 붙는 호칭도 넣지 않는다.
- */
-const KOREAN_SURNAMES =
-  "김|이|박|최|정|강|조|윤|장|임|한|오|서|신|권|황|안|송|류|전|홍|고|문|양|손|배|백|허|남|심|노|하|곽|성|차|주|우|구|나|지|엄|채|원|천|방|공|현|함|변|염|여|추|도|소|석|선|설|마|길|연|위|표|명|기|반|라|왕|금|옥|육|인|맹|제|모|남궁|황보|제갈|선우|독고";
-const PERSON_EXPRESSION = entityExpression(
-  `(?:${KOREAN_SURNAMES})[가-힣]{1,2}\\s?(?:강사|교수|박사|원장|소장|대표이사|멘토)`,
-);
+// 인물·강사명 탐지는 뺐다. 외부 강사 실명이 세특에 남는 일 자체가 드물고,
+// 자동 규칙으로는 교과 내용 속 인물과 구분하기 어려워 오탐 부담이 더 컸다.
 const STRICT_SCHOOL_EXPRESSION = entityExpression(
   "[가-힣A-Za-z0-9·]{2,24}(?:대학교|전문대학|사관학교|고등학교|중학교|초등학교)",
 );
@@ -552,22 +542,6 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     }
   }
 
-  if (PERSON_EXPRESSION) {
-    PERSON_EXPRESSION.lastIndex = 0;
-    for (const match of text.matchAll(PERSON_EXPRESSION)) {
-      issues.push({
-        type: "person",
-        label: "인물·강사명",
-        match: match[0],
-        guidance:
-          "외부 강사·교수 등 특정 인물의 실명으로 보입니다. 교과 내용 속 인물인지, 기재를 피해야 할 실명인지 확인해 주세요.",
-        reference: "2026 기재요령 p.19 · 교사 점검대장 사례",
-        severity: "warning",
-        index: match.index ?? 0,
-      });
-    }
-  }
-
   const seen = new Set<string>();
   const deduped = issues
     .sort((left, right) => left.index - right.index || left.type.localeCompare(right.type))
@@ -595,5 +569,4 @@ export const INSPECTION_LABELS: Record<InspectionIssueType, string> = {
   prohibited: "기재금지어",
   institution: "기관명",
   business: "상호명",
-  person: "인물·강사명",
 };
