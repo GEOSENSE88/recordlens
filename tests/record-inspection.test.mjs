@@ -139,6 +139,32 @@ test("no longer flags instructor names at all", () => {
   assert.equal(issues.length, 0);
 });
 
+test("keeps bare mock-exam mentions but flags their scores", () => {
+  // 모의고사는 과목 표기·문제 풀이 서술에 흔히 나오므로 단순 언급은 잡지 않는다.
+  for (const text of [
+    "모의고사 기출 문항을 변형하여 탐구함.",
+    "전국연합학력평가 문항을 분석하고 풀이 전략을 발표함.",
+  ]) {
+    assert.equal(
+      inspectRecordText(text).some((issue) => issue.label === "시험·성적"),
+      false,
+      text + " 를 단순 언급인데 잡았습니다.",
+    );
+  }
+  // 성적과 함께 나오면 계속 잡는다.
+  for (const text of [
+    "모의고사 성적이 크게 향상됨.",
+    "모의고사에서 높은 등급을 받음.",
+    "석차 3등을 기록함.",
+  ]) {
+    assert.equal(
+      inspectRecordText(text).some((issue) => issue.label === "시험·성적"),
+      true,
+      text + " 에서 시험·성적 지적이 사라졌습니다.",
+    );
+  }
+});
+
 test("flags quote lookalikes that sneak in from word processors", () => {
   const issues = inspectRecordText("｀꿈과 끼｀를 주제로 발표하고 ´성실´이라는 단어를 탐구함.");
   const marks = issues.filter((issue) => issue.label === "따옴표 오입력").map((issue) => issue.match);
