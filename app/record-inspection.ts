@@ -55,13 +55,8 @@ const PROHIBITED_RULES: TextRule[] = [
     reference: "2026 기재요령 p.18",
     severity: "danger",
   },
-  {
-    expression: /소\s*논문|논문\s*(?:투고|등재|발표)|학회지|학회\s*발표/gu,
-    label: "논문·학회",
-    guidance: "논문 투고·등재·학회 발표 사실과 창체 자율탐구 산출물의 소논문 실적은 기재할 수 없습니다.",
-    reference: "2026 기재요령 p.18, p.82",
-    severity: "danger",
-  },
+  // 논문·학회 탐지는 뺐다. `학회지`, `논문`은 문헌 조사 서술에 정상적으로 나오는 말이고,
+  // 학생이 실제 논문 실적을 기재하는 사례는 거의 없어 오탐 부담이 더 컸다.
   {
     expression: /도서\s*(?:출간|출판)|출판\s*사실|ISBN\s*(?:등록|등재)/giu,
     label: "도서 출간",

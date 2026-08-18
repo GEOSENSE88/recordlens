@@ -167,6 +167,14 @@ test("treats quoted words as work titles and exempts them", () => {
   assert.equal(outside.some((issue) => issue.type === "prohibited"), true);
 });
 
+test("no longer flags journal or thesis wording at all", () => {
+  // 학회지·논문은 문헌 조사 서술에 정상적으로 나오는 말이라 항목을 뺐다.
+  const issues = inspectRecordText(
+    "핵심 개념을 병원 홈페이지, 학회지, 언론 보도 등 다양한 문헌을 통해 조사하고 관련 논문을 참고함.",
+  );
+  assert.equal(issues.some((issue) => issue.label === "논문·학회"), false);
+});
+
 test("no longer flags parental status wording at all", () => {
   // 사회 탐구에서 부모의 소득·학력을 연구 주제로 다루는 서술이 흔해 항목을 뺐다.
   const issues = inspectRecordText(
