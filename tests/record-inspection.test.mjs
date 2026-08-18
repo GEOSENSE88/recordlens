@@ -145,6 +145,28 @@ test("no longer flags instructor names at all", () => {
   assert.equal(issues.length, 0);
 });
 
+test("treats quoted words as work titles and exempts them", () => {
+  // 따옴표 안은 대부분 책·작품 제목이다.
+  for (const text of [
+    "'멋진 신세계'를 읽고 유전 공학의 윤리를 토론함.",
+    "“멋진 신세계”를 읽고 과학 기술의 양면성을 토론함.",
+    "『멋진 신세계』와 「1984」를 비교하며 감상문을 작성함.",
+    "《멋진 신세계》 속 통제 사회를 분석함.",
+    "'자격증의 시대'라는 칼럼을 읽고 능력주의를 비판적으로 검토함.",
+  ]) {
+    const issues = inspectRecordText(text);
+    assert.equal(
+      issues.some((issue) => issue.type === "business" || issue.type === "prohibited"),
+      false,
+      text + " 에서 제목 속 낱말을 지적했습니다.",
+    );
+  }
+  // 따옴표 밖이면 계속 잡는다.
+  const outside = inspectRecordText("신세계 그룹의 유통 전략을 조사하고 자격증 취득 계획을 세움.");
+  assert.equal(outside.some((issue) => issue.type === "business"), true);
+  assert.equal(outside.some((issue) => issue.type === "prohibited"), true);
+});
+
 test("no longer flags parental status wording at all", () => {
   // 사회 탐구에서 부모의 소득·학력을 연구 주제로 다루는 서술이 흔해 항목을 뺐다.
   const issues = inspectRecordText(

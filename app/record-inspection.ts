@@ -155,9 +155,63 @@ const PAIRED_MARKS: Array<{ open: string; close: string; name: string }> = [
 ];
 
 /**
+ * 곧은따옴표는 여는 부호와 닫는 부호가 같은 문자라서, 앞뒤 글자로 역할을 가려 짝을 짓는다.
+ * 앞이 공백이고 뒤가 글자면 여는 따옴표, 앞이 글자면 닫는 따옴표,
+ * 양쪽 다 공백이면(예: `준다 ' 는`) 열린 따옴표가 있을 때 닫는 것으로 본다.
+ * 이렇게 하면 짝이 없을 때 마지막 따옴표가 아니라 실제로 짝이 없는 자리를 짚는다.
+ */
+function pairStraightQuotes(
+  text: string,
+  quote: string,
+): { pairs: Array<[number, number]>; unmatched: number[] } {
+  const opens: number[] = [];
+  const pairs: Array<[number, number]> = [];
+  const unmatched: number[] = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== quote) continue;
+    const before = i > 0 ? text[i - 1] : "";
+    const after = i + 1 < text.length ? text[i + 1] : "";
+    const opensHere =
+      (before === "" || /[\s([{「『〈《]/.test(before)) &&
+      (after !== "" && !/[\s)\]}」』〉》.,!?]/.test(after));
+    const closesHere = before !== "" && !/[\s([{「『〈《]/.test(before);
+    if (opensHere) opens.push(i);
+    else if (closesHere || opens.length) {
+      const open = opens.pop();
+      if (open === undefined) unmatched.push(i);
+      else pairs.push([open, i]);
+    } else opens.push(i);
+  }
+  return { pairs, unmatched: [...unmatched, ...opens] };
+}
+
+/**
+ * 따옴표·낫표·화살괄호로 묶인 구간. 소·대괄호는 한자·영문 병기에 쓰여 제외한다.
+ * 세특에서 이 부호 안은 대부분 책·작품·프로그램 제목이라, 실명 계열 지적을 면제할 때 쓴다.
+ */
+function quotedRanges(text: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const mark of PAIRED_MARKS) {
+    if (mark.open === "(" || mark.open === "[") continue;
+    const opens: number[] = [];
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === mark.open) opens.push(i);
+      else if (text[i] === mark.close && opens.length) {
+        ranges.push([(opens.pop() as number) + 1, i]);
+      }
+    }
+  }
+  for (const quote of ["'", '"']) {
+    for (const [open, close] of pairStraightQuotes(text, quote).pairs) {
+      ranges.push([open + 1, close]);
+    }
+  }
+  return ranges;
+}
+
+/**
  * 따옴표·괄호의 여닫는 짝이 맞는지 확인한다.
- * 굽은따옴표는 여는 부호와 닫는 부호가 다르므로 짝이 없는 위치를 정확히 짚을 수 있고,
- * 곧은따옴표(' ")는 같은 문자를 여닫이로 함께 쓰므로 홀수 개일 때만 지적한다.
+ * 굽은따옴표는 여는 부호와 닫는 부호가 다르므로 짝이 없는 위치를 정확히 짚을 수 있다.
  */
 function collectUnbalancedPairs(text: string, output: InspectionIssue[]) {
   for (const mark of PAIRED_MARKS) {
@@ -185,28 +239,8 @@ function collectUnbalancedPairs(text: string, output: InspectionIssue[]) {
     }
   }
 
-  // 곧은따옴표는 여는 부호와 닫는 부호가 같은 문자라서, 앞뒤 글자로 역할을 가려낸다.
-  // 앞이 공백이고 뒤가 글자면 여는 따옴표, 앞이 글자면 닫는 따옴표,
-  // 양쪽 다 공백이면(예: `준다 ' 는`) 열린 따옴표가 있을 때 닫는 것으로 본다.
-  // 이렇게 하면 홀수 개일 때 마지막 따옴표가 아니라 실제로 짝이 없는 자리를 짚는다.
   for (const quote of ["'", '"']) {
-    const opens: number[] = [];
-    const unmatched: number[] = [];
-    for (let i = 0; i < text.length; i += 1) {
-      if (text[i] !== quote) continue;
-      const before = i > 0 ? text[i - 1] : "";
-      const after = i + 1 < text.length ? text[i + 1] : "";
-      const opensHere =
-        (before === "" || /[\s([{「『〈《]/.test(before)) &&
-        (after !== "" && !/[\s)\]}」』〉》.,!?]/.test(after));
-      const closesHere = before !== "" && !/[\s([{「『〈《]/.test(before);
-      if (opensHere) opens.push(i);
-      else if (closesHere || opens.length) {
-        if (opens.length) opens.pop();
-        else unmatched.push(i);
-      } else opens.push(i);
-    }
-    for (const index of [...unmatched, ...opens]) {
+    for (const index of pairStraightQuotes(text, quote).unmatched) {
       output.push({
         type: "typo",
         label: "짝 안 맞는 부호",
@@ -631,8 +665,20 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     }
   }
 
+  // 따옴표·낫표 안은 대부분 책·작품 제목이다. `'멋진 신세계'`의 신세계처럼
+  // 제목 속 낱말이 기재금지어·기관명·상호명에 걸려도 지적하지 않는다.
+  const titleRanges = quotedRanges(text);
+  const NAMED_TYPES = new Set<InspectionIssueType>(["prohibited", "institution", "business"]);
+  const outsideTitles = issues.filter(
+    (issue) =>
+      !NAMED_TYPES.has(issue.type) ||
+      !titleRanges.some(
+        ([start, end]) => issue.index >= start && issue.index + issue.match.length <= end,
+      ),
+  );
+
   const seen = new Set<string>();
-  const deduped = issues
+  const deduped = outsideTitles
     .sort((left, right) => left.index - right.index || left.type.localeCompare(right.type))
     .filter((issue) => {
       const key = `${issue.type}|${issue.index}|${issue.match}`;
