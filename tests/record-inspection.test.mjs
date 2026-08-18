@@ -131,6 +131,12 @@ test("leaves brand-shaped common nouns alone", () => {
   );
   assert.equal(issues.some((issue) => issue.type === "business"), false);
   assert.equal(issues.some((issue) => issue.type === "institution"), false);
+
+  // 부품 나사와 구분할 수 없어 한글 `나사`는 잡지 않는다. 영문 NASA 는 계속 잡는다.
+  const screw = inspectRecordText("시의 구조를 나사 를 조이는 세 번의 도전으로 재구성함.");
+  assert.equal(screw.some((issue) => issue.type === "institution"), false);
+  const nasa = inspectRecordText("NASA 의 화성 탐사 자료를 분석함.");
+  assert.equal(nasa.some((issue) => issue.type === "institution"), true);
 });
 
 test("no longer flags instructor names at all", () => {
@@ -204,6 +210,23 @@ test("reports unmatched quotes and brackets at the right spot", () => {
 
   const balanced = inspectRecordText("‘창의 융합’ 프로젝트(3월)에서 「문화 상대주의」와 \"관용\"을 탐구함.");
   assert.equal(balanced.some((issue) => issue.label === "짝 안 맞는 부호"), false);
+});
+
+test("points at the quote that actually lacks its pair", () => {
+  // 실제 사례: 세 쌍은 멀쩡하고 `통제'라는` 앞의 여는 따옴표만 빠졌다.
+  // 마지막 따옴표가 아니라 짝이 없는 바로 그 자리를 짚어야 한다.
+  const text =
+    "'give their consciences a rest'라는 표현을 파고들고, 통제'라는 핵심 주제를 짚고, " +
+    "'대부분의 사람은 인공지능을 편리함으로만 바라본다'는 통찰을 더하며 '책에게 반성할 기회를 준다 ' 는 의도를 설명함.";
+  const issues = inspectRecordText(text).filter(
+    (issue) => issue.label === "짝 안 맞는 부호" && issue.match === "'",
+  );
+  assert.equal(issues.length, 1, "짝 없는 따옴표는 정확히 한 건이어야 합니다.");
+  assert.equal(issues[0].index, text.indexOf("통제'") + 2, "짝 없는 자리를 짚지 못했습니다.");
+
+  // 닫는 따옴표 앞에 공백이 있어도(`준다 ' 는`) 짝이 맞으면 지적하지 않는다.
+  const spaced = inspectRecordText("'책에게 반성할 기회를 준다 ' 는 의도를 명확하게 설명함.");
+  assert.equal(spaced.some((issue) => issue.label === "짝 안 맞는 부호"), false);
 });
 
 test("catches the newly added common misspellings", () => {

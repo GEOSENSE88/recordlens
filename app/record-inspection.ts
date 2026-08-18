@@ -185,18 +185,36 @@ function collectUnbalancedPairs(text: string, output: InspectionIssue[]) {
     }
   }
 
+  // 곧은따옴표는 여는 부호와 닫는 부호가 같은 문자라서, 앞뒤 글자로 역할을 가려낸다.
+  // 앞이 공백이고 뒤가 글자면 여는 따옴표, 앞이 글자면 닫는 따옴표,
+  // 양쪽 다 공백이면(예: `준다 ' 는`) 열린 따옴표가 있을 때 닫는 것으로 본다.
+  // 이렇게 하면 홀수 개일 때 마지막 따옴표가 아니라 실제로 짝이 없는 자리를 짚는다.
   for (const quote of ["'", '"']) {
-    const positions: number[] = [];
-    for (let i = 0; i < text.length; i += 1) if (text[i] === quote) positions.push(i);
-    if (positions.length % 2 === 1) {
+    const opens: number[] = [];
+    const unmatched: number[] = [];
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] !== quote) continue;
+      const before = i > 0 ? text[i - 1] : "";
+      const after = i + 1 < text.length ? text[i + 1] : "";
+      const opensHere =
+        (before === "" || /[\s([{「『〈《]/.test(before)) &&
+        (after !== "" && !/[\s)\]}」』〉》.,!?]/.test(after));
+      const closesHere = before !== "" && !/[\s([{「『〈《]/.test(before);
+      if (opensHere) opens.push(i);
+      else if (closesHere || opens.length) {
+        if (opens.length) opens.pop();
+        else unmatched.push(i);
+      } else opens.push(i);
+    }
+    for (const index of [...unmatched, ...opens]) {
       output.push({
         type: "typo",
         label: "짝 안 맞는 부호",
         match: quote,
-        guidance: `따옴표(${quote})가 홀수 개 입력되어 여닫는 짝이 맞지 않는 것으로 보입니다. 영어 어퍼스트로피(예: don't)라면 무시해도 됩니다.`,
+        guidance: `따옴표(${quote})의 여닫는 짝이 맞지 않는 것으로 보입니다. 짝이 없어 보이는 자리를 표시했습니다. 영어 어퍼스트로피(예: don't)라면 무시해도 됩니다.`,
         reference: "문장 형식 점검",
         severity: "warning",
-        index: positions[positions.length - 1],
+        index,
       });
     }
   }
@@ -329,7 +347,7 @@ const SPECIFIC_INSTITUTIONS = [
   "프린스턴",
   "도쿄대",
   "칭화대",
-  "나사",
+  // `나사`는 부품 나사와 구분할 수 없어 넣지 않는다. 영문 NASA 는 약어 규칙이 잡는다.
 ];
 
 /**
