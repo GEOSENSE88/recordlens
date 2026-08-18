@@ -69,6 +69,21 @@ test("keeps award wording out of unrelated compounds", () => {
   }
 });
 
+test("flags every use of the word 대회", () => {
+  // `대회`는 어떤 맥락에서도 기재할 수 없다 (학교 점검 중점사항 ②).
+  for (const text of [
+    "체육 대회를 준비하며 학급의 단합을 이끎.",
+    "토론 대회 예선에서 논거를 정리함.",
+    "교내 스포츠대회 응원전을 기획함.",
+  ]) {
+    assert.equal(
+      inspectRecordText(text).some((issue) => issue.label === "대회·수상"),
+      true,
+      `${text} 에서 대회를 잡지 못했습니다.`,
+    );
+  }
+});
+
 test("never drops a prohibited-word finding behind a wall of symbols", () => {
   const noisy = `${Array.from({ length: 40 }, (_, index) => `★${index}`).join(" ")} 토익 점수를 취득함.`;
   const issues = inspectRecordText(noisy);
