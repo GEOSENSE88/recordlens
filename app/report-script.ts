@@ -220,6 +220,33 @@ export const REPORT_SCRIPT = String.raw`
     }).length;
   }
 
+  /* ---- 문장 재사용 집계: 같은 문장이 몇 개의 기록에 나오는지 ---- */
+
+  var sentenceReuseCounts = {};
+  records.forEach(function (record) {
+    var seen = {};
+    splitSentences(record.t).forEach(function (sentence) {
+      var normalized = normalizeText(sentence);
+      if (normalized.length < 8 || seen[normalized]) return;
+      seen[normalized] = 1;
+      sentenceReuseCounts[normalized] = (sentenceReuseCounts[normalized] || 0) + 1;
+    });
+  });
+
+  function reusedSentencesOf(record) {
+    var seen = {};
+    var out = [];
+    splitSentences(record.t).forEach(function (sentence) {
+      var normalized = normalizeText(sentence);
+      if (normalized.length < 8 || seen[normalized]) return;
+      seen[normalized] = 1;
+      var count = sentenceReuseCounts[normalized] || 0;
+      if (count >= 2) out.push({ text: sentence.trim(), count: count });
+    });
+    out.sort(function (a, b) { return b.count - a.count; });
+    return out.slice(0, 8);
+  }
+
   /* ---- 표 ---- */
 
   var body = document.getElementById("report-body");
@@ -522,6 +549,16 @@ export const REPORT_SCRIPT = String.raw`
         inspectionHtml(record.t, record.i) + "</p></section>" +
         '<section class="rule-findings"><h3>2026 기재요령·문장 점검</h3><ul>' + issueItems +
         "</ul><p>자동 탐지는 보조 기능입니다. 기관명·상호명과 맞춤법은 문맥 및 허용 예외를 직접 확인해 주세요.</p></section>";
+    }
+
+    var reused = reusedSentencesOf(record);
+    if (reused.length) {
+      html += '<section class="reuse-section"><div><strong>재사용된 문장</strong>' +
+        "<small>이 기록의 문장이 전체 저장본에서 몇 개의 기록에 그대로 나오는지입니다.</small></div><ul>" +
+        reused.map(function (sentence) {
+          return "<li><span>" + escapeHtml(sentence.text) + "</span><b>" + sentence.count + "개 기록</b></li>";
+        }).join("") +
+        "</ul></section>";
     }
 
     if (other) {

@@ -863,6 +863,44 @@ function exactSentenceCount(record: CheckRecord): number {
   ).length;
 }
 
+/**
+ * 전체 기록에서 문장이 몇 개의 기록에 나오는지 센다.
+ * 짝 비교(최대 유사도)로는 한 문장이 여러 기록에 돌려쓰인 규모가 안 보이므로,
+ * 정규화한 문장 단위로 따로 집계한다. 너무 짧은 문장은 우연히 겹쳐 제외한다.
+ */
+function buildSentenceReuseCounts(records: CheckRecord[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    const seen = new Set<string>();
+    for (const sentence of splitSentences(record.text)) {
+      const normalized = normalizeText(sentence);
+      if (normalized.length < 8 || seen.has(normalized)) continue;
+      seen.add(normalized);
+      counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+type ReusedSentence = { text: string; count: number };
+
+/** 이 기록의 문장 중 다른 기록에도 그대로 나온 것들. 많이 쓰인 순서로 최대 8개. */
+function reusedSentencesOf(
+  record: CheckRecord,
+  counts: Map<string, number>,
+): ReusedSentence[] {
+  const seen = new Set<string>();
+  const out: ReusedSentence[] = [];
+  for (const sentence of splitSentences(record.text)) {
+    const normalized = normalizeText(sentence);
+    if (normalized.length < 8 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    const count = counts.get(normalized) ?? 0;
+    if (count >= 2) out.push({ text: sentence.trim(), count });
+  }
+  return out.sort((a, b) => b.count - a.count).slice(0, 8);
+}
+
 function diffSegments(text: string, comparisonText: string): DiffSegment[] {
   const tokenize = (value: string) =>
     value.match(/[\p{L}\p{N}]+|[^\p{L}\p{N}\s]+|\s+/gu) ?? [value];
@@ -1168,6 +1206,9 @@ export default function Home() {
       return accumulator;
     }, initial);
   }, [effectiveRecords, threshold]);
+
+  /** 문장별 재사용 집계. 상세 창에서 `이 문장이 몇 개 기록에 나오는지`를 보여 준다. */
+  const sentenceReuseCounts = useMemo(() => buildSentenceReuseCounts(records), [records]);
 
   const issueCounts = useMemo(
     () =>
@@ -1819,6 +1860,14 @@ export default function Home() {
     .similarity-callout { display:flex; align-items:center; justify-content:space-between; gap:20px; margin:18px 25px 0; padding:18px 20px; border-radius:14px; background:var(--brand-950); color:white; }
     .similarity-callout span { color:var(--brand-200); font-size:12px; } .similarity-callout strong { display:block; color:var(--brand-300); font-size:32px; }
     .similarity-callout p { margin:0; color:var(--brand-100); font-size:13px; }
+    .reuse-section { margin:14px 25px 0; padding:14px 17px; border:1px solid var(--line); border-radius:12px; background:white; }
+    .reuse-section > div { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; }
+    .reuse-section strong { color:#12312e; font-size:13px; }
+    .reuse-section > div small { color:#3b7871; font-size:12px; }
+    .reuse-section ul { display:flex; flex-direction:column; gap:6px; margin:10px 0 0; padding:0; list-style:none; }
+    .reuse-section li { display:flex; align-items:baseline; justify-content:space-between; gap:10px; padding:7px 10px; border-radius:8px; background:#eff8f4; font-size:12px; }
+    .reuse-section li span { min-width:0; color:#12312e; line-height:1.55; overflow-wrap:anywhere; }
+    .reuse-section li b { flex-shrink:0; color:var(--danger); font-size:12px; }
     .rule-findings { margin:18px 25px 0; padding:18px; border:1px solid #d5e8e2; border-radius:14px; background:#ffffff; }
     .rule-findings h3 { margin:0 0 12px; font-size:16px; }
     .rule-findings ul { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
@@ -2847,6 +2896,28 @@ export default function Home() {
                 </ul>
               </section>
             )}
+            {(() => {
+              const reused = reusedSentencesOf(activeRecord, sentenceReuseCounts);
+              if (!reused.length) return null;
+              return (
+                <section className="reuse-section">
+                  <div>
+                    <strong>재사용된 문장</strong>
+                    <small>
+                      이 기록의 문장이 전체 업로드에서 몇 개의 기록에 그대로 나오는지입니다.
+                    </small>
+                  </div>
+                  <ul>
+                    {reused.map((sentence) => (
+                      <li key={sentence.text}>
+                        <span>{sentence.text}</span>
+                        <b>{sentence.count}개 기록</b>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })()}
             {activeRecord.matchText && (
               <>
                 <div className="similarity-callout">

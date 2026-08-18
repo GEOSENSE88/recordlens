@@ -2010,6 +2010,65 @@ footer {
   background: var(--brand-100);
 }
 
+/* 같은 문장이 몇 개 기록에 돌려쓰였는지 */
+.reuse-section {
+  margin: 14px 28px 0;
+  padding: 14px 17px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+.reuse-section > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reuse-section strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.reuse-section > div small {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.reuse-section ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reuse-section li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--brand-25);
+  font-size: 12px;
+}
+
+.reuse-section li span {
+  min-width: 0;
+  color: var(--ink);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.reuse-section li b {
+  flex-shrink: 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
