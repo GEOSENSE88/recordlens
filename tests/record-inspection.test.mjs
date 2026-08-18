@@ -167,6 +167,54 @@ test("treats quoted words as work titles and exempts them", () => {
   assert.equal(outside.some((issue) => issue.type === "prohibited"), true);
 });
 
+test("covers the school-specific checklist rules", () => {
+  // ① 학교 추측 표현: 인근 학교 약칭은 잡고, 다산 정약용·산동성은 통과
+  const hint = inspectRecordText("다산 학생들과 연합 활동을 진행함.");
+  assert.equal(hint.some((issue) => issue.label === "학교 추측"), true);
+  const exempt = inspectRecordText("다산 정약용의 목민심서를 읽고 중국 산동성의 지리를 조사함.");
+  assert.equal(exempt.some((issue) => issue.label === "학교 추측"), false);
+
+  // ② 기재 불가 약어: ODA, ESG, 아마존 협력 조약기구
+  const acronyms = inspectRecordText("ESG 경영과 ODA 정책, 아마존 협력 조약기구의 역할을 조사함.")
+    .filter((issue) => issue.type === "institution")
+    .map((issue) => issue.match);
+  for (const name of ["ESG", "ODA", "아마존 협력 조약기구"]) {
+    assert.equal(acronyms.includes(name), true, name + " 를 잡지 못했습니다.");
+  }
+
+  // ④ 헌혈 기관명: 지정 표기가 없으면 확인, 있으면 통과
+  const donation = inspectRecordText("헌혈 봉사에 참여하여 생명 나눔을 실천함.");
+  assert.equal(donation.some((issue) => issue.label === "헌혈 기관명"), true);
+  const properDonation = inspectRecordText("(학교)대한적십자사 충북혈액원에서 헌혈 봉사에 참여함.");
+  assert.equal(properDonation.some((issue) => issue.label === "헌혈 기관명"), false);
+
+  // ⑦ 해외 활동 확장: 해외 연수·캠프
+  assert.equal(
+    inspectRecordText("해외 연수 프로그램에 참가한 경험을 나눔.").some(
+      (issue) => issue.label === "해외 활동",
+    ),
+    true,
+  );
+
+  // ⑧ 논문 등재는 잡고, 문헌 조사의 학회지 언급은 통과
+  assert.equal(
+    inspectRecordText("논문 게재 사실을 소개함.").some((issue) => issue.label === "논문 등재"),
+    true,
+  );
+  assert.equal(
+    inspectRecordText("학회지, 언론 보도 등 다양한 문헌을 조사함.").some(
+      (issue) => issue.label === "논문 등재",
+    ),
+    false,
+  );
+
+  // ⑩ 굽은따옴표 모양
+  const curly = inspectRecordText("‘창의 융합’ 프로젝트에서 “관용”을 탐구함.");
+  assert.equal(curly.some((issue) => issue.label === "따옴표 모양"), true);
+  const straight = inspectRecordText("'창의 융합' 프로젝트에서 \"관용\"을 탐구함.");
+  assert.equal(straight.some((issue) => issue.label === "따옴표 모양"), false);
+});
+
 test("no longer flags journal or thesis wording at all", () => {
   // 학회지·논문은 문헌 조사 서술에 정상적으로 나오는 말이라 항목을 뺐다.
   const issues = inspectRecordText(

@@ -1367,9 +1367,48 @@ export default function Home() {
       );
     }
 
-    setProgress({ stage: "comparing", value: 0, label: "문장 유사도를 비교하고 있습니다" });
     // 확인 표시 열쇠는 병합이 끝난 최종 본문으로 만들어야 같은 파일을 다시 올려도 유지된다.
     const keyed = baseRecords.map((record) => ({ ...record, checkKey: checkKeyOf(record) }));
+
+    // 내장 맞춤법 사전 + 전체 기록 빈도로 오탈자 의심 어절을 찾는다.
+    // 사전(약 14MB)은 처음 한 번만 내려받고, 실패하면 이 검사만 건너뛴다.
+    // 예시 자료처럼 기록이 적으면 빈도 대조가 의미 없어 실행하지 않는다.
+    if (keyed.length >= 30) {
+      setProgress({ stage: "cleaning", value: 85, label: "맞춤법 사전으로 오탈자를 찾고 있습니다" });
+      try {
+        const [{ loadSpellChecker }, { computeSpellingSuspects }] = await Promise.all([
+          import("./spell-dictionary"),
+          import("./spelling-suspects"),
+        ]);
+        const spell = await loadSpellChecker();
+        if (spell) {
+          await yieldToBrowser();
+          const suspects = computeSpellingSuspects(
+            keyed.map((record) => record.text),
+            spell,
+          );
+          suspects.forEach((hits, index) => {
+            if (!hits.length) return;
+            keyed[index].issues = [
+              ...keyed[index].issues,
+              ...hits.map((hit) => ({
+                type: "typo" as const,
+                label: "오탈자 의심",
+                match: hit.match,
+                guidance: hit.explanation,
+                reference: "맞춤법 사전·빈도 대조",
+                severity: "warning" as const,
+                index: hit.index,
+              })),
+            ].sort((a, b) => a.index - b.index);
+          });
+        }
+      } catch {
+        // 사전 검사는 보조 기능이다. 실패해도 나머지 점검은 그대로 진행한다.
+      }
+    }
+
+    setProgress({ stage: "comparing", value: 0, label: "문장 유사도를 비교하고 있습니다" });
     const analyzed = await analyzeSimilarity(keyed, (value) =>
       setProgress({ stage: "comparing", value, label: "문장 유사도를 비교하고 있습니다" }),
     );

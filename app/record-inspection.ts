@@ -75,10 +75,18 @@ const PROHIBITED_RULES: TextRule[] = [
     severity: "danger",
   },
   {
-    expression: /해외\s*(?:어학연수|봉사활동)|어학연수/gu,
+    expression: /해외\s*(?:어학연수|봉사활동|연수|캠프)|어학연수/gu,
     label: "해외 활동",
     guidance: "어학연수·해외 봉사활동 등 해외 활동 실적과 관련 내용은 기재할 수 없습니다.",
     reference: "2026 기재요령 p.18",
+    severity: "danger",
+  },
+  {
+    // 논문·학회지 단순 언급(문헌 조사)은 정상이지만, 등재·게재 사실은 기재할 수 없다.
+    expression: /논문\s*(?:등재|게재)|학술지\s*(?:등재|게재)/gu,
+    label: "논문 등재",
+    guidance: "논문 등재·게재 사실은 학교생활기록부에 기재할 수 없습니다.",
+    reference: "2026 기재요령 p.18 · 학교 점검 중점사항 ⑧",
     severity: "danger",
   },
   {
@@ -135,6 +143,14 @@ const TYPO_RULES: TextRule[] = [
     guidance:
       "작은따옴표(')나 큰따옴표(\")가 아닌 비슷한 모양의 특수기호가 입력된 것으로 보입니다. 올바른 따옴표로 바꿔 주세요.",
     reference: "문장 형식 점검",
+  },
+  {
+    // 학교 점검 기준: 따옴표는 굽은따옴표(‘ ’)가 아니라 자판 곧은따옴표(')로 쓴다.
+    expression: /[‘’“”]/gu,
+    label: "따옴표 모양",
+    guidance:
+      "학교 점검 기준은 굽은따옴표(‘ ’ “ ”)가 아니라 자판으로 입력하는 곧은따옴표(' \")입니다. 점의 모양을 확인해 주세요.",
+    reference: "학교 점검 중점사항 ⑩",
   },
 ];
 
@@ -338,6 +354,12 @@ const SPECIFIC_INSTITUTIONS = [
   "나눔의집",
   "달빛어린이병원",
   "KBS 방송국",
+  "아마존협력조약기구",
+  "아마존 협력 조약기구",
+  // 학교 점검 중점사항 ①: 학교를 추측할 수 있는 인근 학교 약칭
+  "산남고",
+  "산남중",
+  "산남초",
   // 대학 약칭. `서울대학교` 같은 정식 명칭은 학교 규칙이 따로 잡는다.
   "서울대",
   "연세대",
@@ -423,6 +445,9 @@ const INSTITUTION_ACRONYMS = [
   "UNIST",
   "GIST",
   "DGIST",
+  // 학교 점검 기준의 기재 불가 약어 (마지막 페이지 대체 용어 목록 참고)
+  "ODA",
+  "ESG",
 ];
 
 /**
@@ -557,6 +582,9 @@ const NAMED_INSTITUTION_EXPRESSION = entityExpression(
     "(?:연구원|연구소|학회|협회|재단|방송국|신문사|병원|박물관|미술관|도서관|공단|공사|위원회|전당)",
 );
 const SPECIFIC_PLACE_INSTITUTION_EXPRESSION = entityExpression("[가-힣]{2,12}(?:공항|경찰서)");
+// 학교 점검 중점사항 ①: 학교를 추측할 수 있는 표현.
+// 다산 정약용(인물 호), 중국 산동성(지명)은 정상 서술이라 뺀다.
+const SCHOOL_HINT_EXPRESSION = entityExpression("다산(?!\\s*정약용)|산동(?!성|반도)|산국");
 const BUSINESS_EXPRESSION = entityExpression(
   `(?:주식회사|\\(주\\)|㈜)\\s*[가-힣A-Za-z0-9·]+|${SPECIFIC_BUSINESSES.map(escapeRegExp)
     .sort((left, right) => right.length - left.length)
@@ -644,6 +672,37 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     }
   }
 
+  if (SCHOOL_HINT_EXPRESSION) {
+    SCHOOL_HINT_EXPRESSION.lastIndex = 0;
+    for (const match of text.matchAll(SCHOOL_HINT_EXPRESSION)) {
+      issues.push({
+        type: "institution",
+        label: "학교 추측",
+        match: match[0],
+        guidance:
+          "학교를 추측할 수 있는 표현으로 보입니다(인근 학교명 등). 문맥을 확인해 주세요.",
+        reference: "학교 점검 중점사항 ①",
+        severity: "warning",
+        index: match.index ?? 0,
+      });
+    }
+  }
+
+  // 헌혈 봉사활동은 기관명을 (학교)대한적십자사 충북혈액원으로 적어야 한다.
+  const donation = text.match(/헌혈/);
+  if (donation && !/대한적십자사\s*충북혈액원/.test(text)) {
+    issues.push({
+      type: "institution",
+      label: "헌혈 기관명",
+      match: "헌혈",
+      guidance:
+        "헌혈 봉사활동 기관명은 (학교)대한적십자사 충북혈액원으로 입력해야 합니다. 기관 표기를 확인해 주세요.",
+      reference: "학교 점검 중점사항 ④",
+      severity: "warning",
+      index: donation.index ?? 0,
+    });
+  }
+
   for (const expression of [BUSINESS_EXPRESSION, BUSINESS_ACRONYM_EXPRESSION]) {
     if (!expression) continue;
     expression.lastIndex = 0;
@@ -691,7 +750,9 @@ export function inspectRecordText(text: string): InspectionIssue[] {
   const deduped = outsideTitles
     .sort((left, right) => left.index - right.index || left.type.localeCompare(right.type))
     .filter((issue) => {
-      const key = `${issue.type}|${issue.index}|${issue.match}`;
+      // 같은 자리에서도 지적 종류(라벨)가 다르면 별개의 지적이다.
+      // (굽은따옴표는 따옴표 모양과 짝 검사에 함께 걸릴 수 있다.)
+      const key = `${issue.type}|${issue.label}|${issue.index}|${issue.match}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
