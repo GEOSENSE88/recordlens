@@ -212,6 +212,57 @@ export const REPORT_SCRIPT = String.raw`
     return out;
   }
 
+  /**
+   * 어느 문장을 학생 고유의 내용으로 새로 쓰면 유사도가 얼마로 내려가는지 어림한다.
+   * 완성 문장은 일부러 만들어 주지 않는다. (그대로 옮겨 적으면 다시 같아진다)
+   */
+  function computeRewriteHints(record) {
+    if (record.m < 0) return [];
+    var otherText = records[record.m].t;
+
+    function uniqueTokens(value) {
+      var seen = {}, out = [];
+      normalizeText(value).split(" ").forEach(function (t) {
+        if (t && !seen[t]) { seen[t] = 1; out.push(t); }
+      });
+      return out;
+    }
+
+    var tokensA = uniqueTokens(record.t);
+    var tokensB = {};
+    uniqueTokens(otherText).forEach(function (t) { tokensB[t] = 1; });
+    var tokensBCount = Object.keys(tokensB).length;
+    var intersection = 0;
+    tokensA.forEach(function (t) { if (tokensB[t]) intersection++; });
+    var union = tokensA.length + tokensBCount - intersection;
+    if (!union) return [];
+
+    var perSentence = splitSentences(record.t).map(function (sentence) {
+      return uniqueTokens(sentence);
+    });
+    var sentenceCount = {};
+    perSentence.forEach(function (set) {
+      set.forEach(function (t) { sentenceCount[t] = (sentenceCount[t] || 0) + 1; });
+    });
+
+    var hints = [];
+    highlightSentences(record.t, otherText).forEach(function (sentence, index) {
+      if (sentence.level === "none") return;
+      var removable = 0;
+      (perSentence[index] || []).forEach(function (t) {
+        if (tokensB[t] && sentenceCount[t] === 1) removable++;
+      });
+      if (!removable) return;
+      hints.push({
+        sentence: sentence.text.trim(),
+        estimated: Math.max(0, (intersection - removable) / (union + removable)),
+      });
+    });
+
+    hints.sort(function (a, b) { return a.estimated - b.estimated; });
+    return hints.slice(0, 3);
+  }
+
   /* ---- 표 ---- */
 
   var body = document.getElementById("report-body");
@@ -520,8 +571,24 @@ export const REPORT_SCRIPT = String.raw`
       var keywords = sharedKeywords(record);
       html += '<div class="similarity-callout"><div><span>자카드 유사도</span><strong>' +
         formatPercent(record.sim) + "</strong></div><p>전체 고유 단어 중 " + keywords.length +
-        "개가 공통으로 확인되었습니다.</p></div>" +
-        '<div class="highlight-guide"><span><i class="exact"></i>완전 일치 문장·공통 부분</span>' +
+        "개가 공통으로 확인되었습니다.</p></div>";
+
+      if (status === "exact" || status === "high") {
+        var hints = computeRewriteHints(record);
+        if (hints.length) {
+          html += '<section class="rewrite-guide"><h3>유사도를 낮추려면 이렇게 고쳐 보세요</h3>' +
+            "<p>활동의 틀은 같아도 학생이 다룬 주제·작품, 실제 역할과 발언, 산출물과 배움이 드러나면 문장이 달라집니다. 효과가 큰 문장부터 고쳐 보세요.</p><ol>" +
+            hints.map(function (hint) {
+              var sentence = hint.sentence.length > 64 ? hint.sentence.slice(0, 64) + "…" : hint.sentence;
+              return '<li><span class="rewrite-sentence">' + escapeHtml(sentence) +
+                "</span><strong>새로 쓰면 약 " + formatPercent(hint.estimated) + "</strong></li>";
+            }).join("") +
+            '</ol><p class="rewrite-example">예: “모둠 토의에서 자신의 의견을 논리적으로 발표함” → “(다룬 논제)에 대해 (학생의 주장)을 (근거로 든 자료)를 들어 발표함”</p>' +
+            "<small>안내 문구를 그대로 옮겨 적으면 다른 기록과 다시 같아질 수 있습니다. 반드시 학생의 실제 활동으로 채워 주세요.</small></section>";
+        }
+      }
+
+      html += '<div class="highlight-guide"><span><i class="exact"></i>완전 일치 문장·공통 부분</span>' +
         '<span><i class="similar"></i>문장 내 다른 부분</span>' +
         "<small>문장에 마우스를 올리면 양쪽의 같은 문장이 함께 표시됩니다.</small></div>" +
         '<div class="comparison-grid" data-pair-scope="1"><section><h3>A · ' + escapeHtml(record.n) + "</h3>" +

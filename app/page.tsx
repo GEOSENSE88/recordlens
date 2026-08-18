@@ -830,6 +830,62 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
   });
 }
 
+type RewriteHint = {
+  /** 고쳐 쓸 문장 */
+  sentence: string;
+  /** 이 문장을 학생 고유의 내용으로 새로 쓰면 예상되는 유사도 */
+  estimated: number;
+};
+
+/**
+ * 유사도가 높은 기록에서 어느 문장을 고치면 유사도가 얼마나 내려가는지 어림한다.
+ *
+ * 자카드 유사도는 전체 고유 단어의 교집합/합집합이므로, 한 문장을 완전히 새로 쓰면
+ * 그 문장에서만 나오는 공통 단어가 교집합에서 빠지고 새 단어가 합집합에 더해진다.
+ * 그 결과를 계산해 효과가 큰 문장부터 보여준다.
+ *
+ * 일부러 완성 문장을 만들어 주지는 않는다. 도구가 만든 문장을 그대로 옮겨 적으면
+ * 이 도구를 쓰는 다른 기록들과 다시 같아진다.
+ */
+function computeRewriteHints(record: CheckRecord): RewriteHint[] {
+  if (!record.matchText) return [];
+
+  const tokensA = new Set(record.tokens);
+  const tokensB = new Set(normalizeText(record.matchText).split(" ").filter(Boolean));
+  let intersection = 0;
+  for (const token of tokensA) if (tokensB.has(token)) intersection += 1;
+  const union = tokensA.size + tokensB.size - intersection;
+  if (union === 0) return [];
+
+  const sentences = splitSentences(record.text);
+  const perSentence = sentences.map(
+    (sentence) => new Set(normalizeText(sentence).split(" ").filter(Boolean)),
+  );
+  // 단어가 몇 개의 문장에 나오는지 세어, 그 문장에서만 나오는 단어를 가려낸다.
+  const sentenceCount = new Map<string, number>();
+  for (const set of perSentence) {
+    for (const token of set) sentenceCount.set(token, (sentenceCount.get(token) ?? 0) + 1);
+  }
+
+  const marked = highlightSentences(record.text, record.matchText);
+  const hints: RewriteHint[] = [];
+  marked.forEach((sentence, index) => {
+    if (sentence.level === "none") return;
+    let removable = 0;
+    for (const token of perSentence[index] ?? []) {
+      if (tokensB.has(token) && (sentenceCount.get(token) ?? 0) === 1) removable += 1;
+    }
+    if (!removable) return;
+    hints.push({
+      sentence: sentence.text.trim(),
+      estimated: Math.max(0, (intersection - removable) / (union + removable)),
+    });
+  });
+
+  // 예상 유사도가 가장 많이 내려가는 문장부터
+  return hints.sort((a, b) => a.estimated - b.estimated).slice(0, 3);
+}
+
 function diffSegments(text: string, comparisonText: string): DiffSegment[] {
   const tokenize = (value: string) =>
     value.match(/[\p{L}\p{N}]+|[^\p{L}\p{N}\s]+|\s+/gu) ?? [value];
@@ -1704,6 +1760,15 @@ export default function Home() {
     .similarity-callout { display:flex; align-items:center; justify-content:space-between; gap:20px; margin:18px 25px 0; padding:18px 20px; border-radius:14px; background:var(--brand-950); color:white; }
     .similarity-callout span { color:var(--brand-200); font-size:12px; } .similarity-callout strong { display:block; color:var(--brand-300); font-size:32px; }
     .similarity-callout p { margin:0; color:var(--brand-100); font-size:13px; }
+    .rewrite-guide { margin:16px 25px 0; padding:17px 19px; border:1px solid #cfe6df; border-radius:14px; background:#f2faf7; }
+    .rewrite-guide h3 { margin:0 0 7px; color:var(--brand-950); font-size:15px; }
+    .rewrite-guide > p { margin:0; color:#3f5a55; font-size:13px; line-height:1.65; }
+    .rewrite-guide ol { display:grid; gap:7px; margin:12px 0 0; padding:0 0 0 22px; }
+    .rewrite-guide li { color:#12332f; font-size:13px; line-height:1.6; }
+    .rewrite-sentence { color:#3f5a55; }
+    .rewrite-guide li strong { margin-left:7px; color:var(--brand-700); white-space:nowrap; }
+    .rewrite-example { margin:12px 0 0; padding:10px 12px; border-radius:9px; background:white; color:#12332f; font-size:13px; }
+    .rewrite-guide small { display:block; margin-top:9px; color:#b8442a; font-size:12px; }
     .rule-findings { margin:18px 25px 0; padding:18px; border:1px solid #d5e8e2; border-radius:14px; background:#ffffff; }
     .rule-findings h3 { margin:0 0 12px; font-size:16px; }
     .rule-findings ul { display:grid; gap:8px; margin:0; padding:0; list-style:none; }
@@ -2711,6 +2776,42 @@ export default function Home() {
                   </div>
                   <p>실제 공통 고유 단어 {sharedKeywordCount(selectedRecord)}개</p>
                 </div>
+                {["exact", "high"].includes(riskStatus(selectedRecord, threshold)) &&
+                  (() => {
+                    const hints = computeRewriteHints(selectedRecord);
+                    if (!hints.length) return null;
+                    return (
+                      <section className="rewrite-guide">
+                        <h3>유사도를 낮추려면 이렇게 고쳐 보세요</h3>
+                        <p>
+                          활동의 틀은 같아도 학생이 다룬 주제·작품, 실제 역할과 발언, 산출물과
+                          배움이 드러나면 문장이 달라집니다. 효과가 큰 문장부터 고쳐 보세요.
+                        </p>
+                        <ol>
+                          {hints.map((hint, index) => (
+                            <li key={index}>
+                              <span className="rewrite-sentence">
+                                {hint.sentence.length > 64
+                                  ? `${hint.sentence.slice(0, 64)}…`
+                                  : hint.sentence}
+                              </span>
+                              <strong>
+                                새로 쓰면 약 {formatPercent(hint.estimated)}
+                              </strong>
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="rewrite-example">
+                          예: “모둠 토의에서 자신의 의견을 논리적으로 발표함” → “(다룬
+                          논제)에 대해 (학생의 주장)을 (근거로 든 자료)를 들어 발표함”
+                        </p>
+                        <small>
+                          안내 문구를 그대로 옮겨 적으면 다른 기록과 다시 같아질 수 있습니다.
+                          반드시 학생의 실제 활동으로 채워 주세요.
+                        </small>
+                      </section>
+                    );
+                  })()}
                 <div className="highlight-legend" aria-label="문장 강조 표시 안내">
                   <span>
                     <i className="exact" />
