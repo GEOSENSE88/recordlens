@@ -297,6 +297,12 @@ test("catches the newly added common misspellings", () => {
   }
   const fine = inspectRecordText("며칠 동안 개수를 세어 초점을 맞추고 오랜만에 곰곰이 생각함.");
   assert.equal(fine.some((issue) => issue.label === "맞춤법 의심"), false);
+
+  // 어근+조사 오류: 해박과 지식 → 해박한 지식. 해박함과(명사형+과)는 정상이다.
+  const rootParticle = inspectRecordText("해박과 지식과 탐구열이 돋보이는 학생임.");
+  assert.equal(rootParticle.some((issue) => issue.label === "맞춤법 의심"), true);
+  const nominal = inspectRecordText("지식의 해박함과 탐구열이 돋보이는 학생임.");
+  assert.equal(nominal.some((issue) => issue.label === "맞춤법 의심"), false);
 });
 
 test("leaves education authorities and mere patent mentions alone", () => {

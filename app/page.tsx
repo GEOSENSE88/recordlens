@@ -71,6 +71,8 @@ type CheckRecord = {
   exactGroupSize: number;
   recordType: RecordType;
   issues: InspectionIssue[];
+  /** 담당자가 예외 처리 버튼으로 걸러낸 지적. 화면·집계·내보내기에서 빠진다. */
+  exceptedIssues?: InspectionIssue[];
   /**
    * 확인 표시를 저장할 때 쓰는 내용 기반 열쇠.
    * id는 업로드할 때마다 다시 매겨지므로, 같은 파일을 다시 올려도
@@ -150,10 +152,16 @@ function checkKeyOf(
 const CHECKED_STORAGE_KEY = "recordlens-checked-v1";
 /** 브라우저 저장소가 한없이 커지지 않도록 최근 확인 표시만 남긴다. */
 const CHECKED_STORAGE_LIMIT = 50000;
+/** 예외 처리한 지적도 같은 방식으로 내용 기반 열쇠로 저장해 재업로드에도 유지한다. */
+const EXCEPTION_STORAGE_KEY = "recordlens-exceptions-v1";
 
-function loadCheckedKeys(): Set<string> {
+function issueKeyOf(record: Pick<CheckRecord, "checkKey">, issue: InspectionIssue) {
+  return `${record.checkKey}|${issue.type}|${issue.index}|${issue.match}`;
+}
+
+function loadStoredKeys(storageKey: string): Set<string> {
   try {
-    const raw = window.localStorage.getItem(CHECKED_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
     if (!raw) return new Set();
     const parsed: unknown = JSON.parse(raw);
     return new Set(
@@ -164,15 +172,23 @@ function loadCheckedKeys(): Set<string> {
   }
 }
 
-function saveCheckedKeys(keys: Set<string>) {
+function saveStoredKeys(storageKey: string, keys: Set<string>) {
   try {
     window.localStorage.setItem(
-      CHECKED_STORAGE_KEY,
+      storageKey,
       JSON.stringify([...keys].slice(-CHECKED_STORAGE_LIMIT)),
     );
   } catch {
     // 저장소를 못 쓰는 환경(시크릿 창 등)에서는 이번 화면 안에서만 유지된다.
   }
+}
+
+function loadCheckedKeys(): Set<string> {
+  return loadStoredKeys(CHECKED_STORAGE_KEY);
+}
+
+function saveCheckedKeys(keys: Set<string>) {
+  saveStoredKeys(CHECKED_STORAGE_KEY, keys);
 }
 
 function cellText(value: unknown) {
@@ -741,6 +757,8 @@ function makeDemoRecords(): CheckRecord[] {
     ["2학년 3반", "2학년", "영어", "윤○○", "영어 기사에서 핵심 정보를 찾아 요약하고 환경 문제에 대한 자신의 의견을 명확하게 표현함."],
     ["3학년 1반", "3학년", "과학", "장○○", "실험 변인을 통제해 결과를 분석하고 오차 원인을 찾아 후속 탐구 방법을 제안함."],
     ["3학년 2반", "3학년", "사회", "한○○", "지역 문제의 원인을 다양한 자료로 분석하고 공동체 관점의 해결 방안을 제안함."],
+    // 기재요령 보조 점검이 어떻게 표시되는지 보여주는 예시. 어학시험·기관명·특수기호를 일부러 담았다.
+    ["3학년 3반", "3학년", "진로와 직업", "서○○", "토익 성적 향상을 목표로 학습 계획을 세우고, 통계청 자료를 인용하여 지역 인구 변화를 분석함. ① 자료 수집 ② 해석 순서로 보고서를 정리함."],
   ];
 
   return samples.map((sample, index) => {
@@ -1098,6 +1116,10 @@ export default function Home() {
     typeof window === "undefined" ? new Set() : loadCheckedKeys(),
   );
   const [hideChecked, setHideChecked] = useState(false);
+  /** 예외 처리 버튼으로 걸러낸 지적. 내용 기반 열쇠라 재업로드에도 유지된다. */
+  const [exceptedKeys, setExceptedKeys] = useState<Set<string>>(() =>
+    typeof window === "undefined" ? new Set() : loadStoredKeys(EXCEPTION_STORAGE_KEY),
+  );
 
   function toggleChecked(key: string, force?: boolean) {
     setCheckedKeys((previous) => {
@@ -1110,17 +1132,46 @@ export default function Home() {
     });
   }
 
+  function toggleException(key: string) {
+    setExceptedKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      saveStoredKeys(EXCEPTION_STORAGE_KEY, next);
+      return next;
+    });
+  }
+
+  /**
+   * 예외 처리한 지적을 걸러낸 화면용 기록. 표·집계·상세 창·내보내기가 모두 이걸 쓴다.
+   * 원본 records 는 그대로 두어 예외를 해제하면 즉시 되살아난다.
+   */
+  const effectiveRecords = useMemo(() => {
+    if (!exceptedKeys.size) return records;
+    return records.map((record) => {
+      if (!record.issues.length) return record;
+      const kept: InspectionIssue[] = [];
+      const excepted: InspectionIssue[] = [];
+      for (const issue of record.issues) {
+        if (exceptedKeys.has(issueKeyOf(record, issue))) excepted.push(issue);
+        else kept.push(issue);
+      }
+      if (!excepted.length) return record;
+      return { ...record, issues: kept, exceptedIssues: excepted };
+    });
+  }, [records, exceptedKeys]);
+
   const counts = useMemo(() => {
     const initial = { exact: 0, high: 0, review: 0, normal: 0 };
-    return records.reduce((accumulator, record) => {
+    return effectiveRecords.reduce((accumulator, record) => {
       accumulator[riskStatus(record, threshold)] += 1;
       return accumulator;
     }, initial);
-  }, [records, threshold]);
+  }, [effectiveRecords, threshold]);
 
   const issueCounts = useMemo(
     () =>
-      records.reduce(
+      effectiveRecords.reduce(
         (accumulator, record) => {
           for (const type of new Set(record.issues.map((issue) => issue.type))) {
             accumulator[type] += 1;
@@ -1132,7 +1183,7 @@ export default function Home() {
           number
         >,
       ),
-    [records],
+    [effectiveRecords],
   );
 
   const recordMode: RecordType | "mixed" = records.every(
@@ -1153,7 +1204,7 @@ export default function Home() {
 
   const subjectSummaries = useMemo<SubjectSummary[]>(() => {
     const map = new Map<string, SubjectSummary>();
-    for (const record of records) {
+    for (const record of effectiveRecords) {
       const summary = map.get(record.subject) ?? {
         subject: record.subject,
         total: 0,
@@ -1169,7 +1220,7 @@ export default function Home() {
       map.set(record.subject, summary);
     }
     return [...map.values()].sort((a, b) => b.exact + b.high - (a.exact + a.high) || b.total - a.total);
-  }, [records, threshold]);
+  }, [effectiveRecords, threshold]);
 
   const classOptions = useMemo(
     () =>
@@ -1188,7 +1239,7 @@ export default function Home() {
 
   const filteredRecords = useMemo(() => {
     const term = normalizeText(search);
-    const filtered = records.filter((record) => {
+    const filtered = effectiveRecords.filter((record) => {
       const status = riskStatus(record, threshold);
       if (riskFilter !== "all" && status !== riskFilter) return false;
       if (issueFilter !== "all" && !record.issues.some((issue) => issue.type === issueFilter)) {
@@ -1221,7 +1272,7 @@ export default function Home() {
     classFilter,
     hideChecked,
     issueFilter,
-    records,
+    effectiveRecords,
     riskFilter,
     search,
     sortMode,
@@ -1239,6 +1290,11 @@ export default function Home() {
   const selectedIndex = selectedRecord
     ? filteredRecords.findIndex((record) => record.id === selectedRecord.id)
     : -1;
+
+  // 예외 처리로 지적 목록이 바뀌면 열린 상세 창에도 바로 반영되도록 최신 기록을 찾는다.
+  const activeRecord = selectedRecord
+    ? (effectiveRecords.find((record) => record.id === selectedRecord.id) ?? selectedRecord)
+    : null;
 
   /** 상세 창을 닫지 않고 현재 필터·정렬 순서대로 앞뒤 기록을 오간다. */
   function openNeighbor(delta: number) {
@@ -1443,8 +1499,8 @@ export default function Home() {
     setProgress({ stage: "cleaning", value: 60, label: "엑셀 파일을 만들고 있습니다" });
     try {
       const { buildStyledWorkbook } = await import("./export-workbook");
-      const gradeNames = [...new Set(records.map((record) => record.grade))].sort((a, b) =>
-        a.localeCompare(b, "ko"),
+      const gradeNames = [...new Set(effectiveRecords.map((record) => record.grade))].sort(
+        (a, b) => a.localeCompare(b, "ko"),
       );
       const blob = await buildStyledWorkbook({
         categoryLabel,
@@ -1456,7 +1512,7 @@ export default function Home() {
             new Date(),
           ),
         threshold,
-        rows: records.map((record) => {
+        rows: effectiveRecords.map((record) => {
           const status = riskStatus(record, threshold);
           return {
             checked: checkedKeys.has(record.checkKey),
@@ -1513,7 +1569,8 @@ export default function Home() {
     const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
     // 저장본은 화면의 현재 필터와 무관하게 모든 기록을 담는다.
     // 걸러 보는 일은 저장된 파일 안에서 다시 할 수 있다.
-    const orderedRecords = [...records].sort(
+    // 예외 처리한 지적은 저장 시점 상태 그대로 빠진다.
+    const orderedRecords = [...effectiveRecords].sort(
       (a, b) => b.similarity - a.similarity || a.name.localeCompare(b.name, "ko"),
     );
     const checkedCount = counts.exact + counts.high + counts.review;
@@ -2659,7 +2716,7 @@ export default function Home() {
         </div>
       )}
 
-      {selectedRecord && (
+      {activeRecord && (
         <div
           className="modal-backdrop"
           role="presentation"
@@ -2670,9 +2727,9 @@ export default function Home() {
           <section className="compare-modal" role="dialog" aria-modal="true" aria-labelledby="compare-title">
             <div className="modal-header">
               <div>
-                <span className={`status-badge ${riskStatus(selectedRecord, threshold)}`}>
+                <span className={`status-badge ${riskStatus(activeRecord, threshold)}`}>
                   <i />
-                  {riskLabel(riskStatus(selectedRecord, threshold))}
+                  {riskLabel(riskStatus(activeRecord, threshold))}
                 </span>
                 <h2 id="compare-title">기록 종합점검</h2>
               </div>
@@ -2680,7 +2737,7 @@ export default function Home() {
                 <X size={20} />
               </button>
             </div>
-            {selectedRecord.issues.length > 0 && (
+            {activeRecord.issues.length > 0 && (
               <>
                 <section className="inspection-source">
                   <div>
@@ -2689,8 +2746,8 @@ export default function Home() {
                   </div>
                   <p>
                     <InspectionHighlightedText
-                      text={selectedRecord.text}
-                      issues={selectedRecord.issues}
+                      text={activeRecord.text}
+                      issues={activeRecord.issues}
                     />
                   </p>
                 </section>
@@ -2698,17 +2755,25 @@ export default function Home() {
                   <div className="rule-findings-heading">
                     <div>
                       <span>기재요령 보조 점검</span>
-                      <h3>확인할 표현 {selectedRecord.issues.length}건</h3>
+                      <h3>확인할 표현 {activeRecord.issues.length}건</h3>
                     </div>
                     <small>자동 탐지 결과이므로 문맥과 예외를 확인하세요.</small>
                   </div>
                   <div className="rule-finding-list">
-                    {selectedRecord.issues.map((issue, index) => (
+                    {activeRecord.issues.map((issue, index) => (
                       <article key={`${issue.type}-${issue.index}-${index}`}>
                         <div>
                           <span className={`inspection-chip ${issue.severity}`}>{issue.label}</span>
                           <strong>{issue.match}</strong>
                           <small>{issue.reference}</small>
+                          <button
+                            type="button"
+                            className="exception-button"
+                            title="이 지적을 집계와 결과에서 제외합니다"
+                            onClick={() => toggleException(issueKeyOf(activeRecord, issue))}
+                          >
+                            예외 처리
+                          </button>
                         </div>
                         <p>{issue.guidance}</p>
                       </article>
@@ -2717,16 +2782,38 @@ export default function Home() {
                 </section>
               </>
             )}
-            {selectedRecord.matchText && (
+            {(activeRecord.exceptedIssues?.length ?? 0) > 0 && (
+              <section className="excepted-findings">
+                <div>
+                  <strong>예외 처리된 표현 {activeRecord.exceptedIssues?.length}건</strong>
+                  <small>집계·저장본·엑셀에서 빠집니다. 해제하면 되살아납니다.</small>
+                </div>
+                <ul>
+                  {activeRecord.exceptedIssues?.map((issue, index) => (
+                    <li key={`${issue.type}-${issue.index}-${index}`}>
+                      <span className="inspection-chip">{issue.label}</span>
+                      <s>{issue.match}</s>
+                      <button
+                        type="button"
+                        onClick={() => toggleException(issueKeyOf(activeRecord, issue))}
+                      >
+                        해제
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {activeRecord.matchText && (
               <>
                 <div className="similarity-callout">
                   <div>
                     <span>자카드 유사도</span>
-                    <strong>{formatPercent(selectedRecord.similarity)}</strong>
+                    <strong>{formatPercent(activeRecord.similarity)}</strong>
                   </div>
                   <p>
-                    완전 일치 문장 {exactSentenceCount(selectedRecord)}개 · 실제 공통 고유 단어{" "}
-                    {sharedKeywordCount(selectedRecord)}개
+                    완전 일치 문장 {exactSentenceCount(activeRecord)}개 · 실제 공통 고유 단어{" "}
+                    {sharedKeywordCount(activeRecord)}개
                   </p>
                 </div>
                 <div className="highlight-legend" aria-label="문장 강조 표시 안내">
@@ -2745,15 +2832,15 @@ export default function Home() {
                     <div className="comparison-label">
                       <span>A</span>
                       <div>
-                        <strong>{selectedRecord.name}</strong>
+                        <strong>{activeRecord.name}</strong>
                         <small>
-                          {selectedRecord.className} · {selectedRecord.subject}
+                          {activeRecord.className} · {activeRecord.subject}
                         </small>
                       </div>
                     </div>
                     <HighlightedComparisonText
-                      text={selectedRecord.text}
-                      comparisonText={selectedRecord.matchText}
+                      text={activeRecord.text}
+                      comparisonText={activeRecord.matchText}
                       pairFrom="match"
                     />
                   </article>
@@ -2761,13 +2848,13 @@ export default function Home() {
                     <div className="comparison-label">
                       <span>B</span>
                       <div>
-                        <strong>{selectedRecord.matchName || "비교 대상"}</strong>
+                        <strong>{activeRecord.matchName || "비교 대상"}</strong>
                         <small>가장 유사한 다른 기록</small>
                       </div>
                     </div>
                     <HighlightedComparisonText
-                      text={selectedRecord.matchText}
-                      comparisonText={selectedRecord.text}
+                      text={activeRecord.matchText}
+                      comparisonText={activeRecord.text}
                       pairFrom="self"
                     />
                   </article>
@@ -2775,10 +2862,10 @@ export default function Home() {
                 <div className="keyword-section">
                   <span>두 기록의 공통 단어 목록</span>
                   <div>
-                    {sharedKeywords(selectedRecord).map((keyword) => (
+                    {sharedKeywords(activeRecord).map((keyword) => (
                       <i key={keyword}>{keyword}</i>
                     ))}
-                    {!sharedKeywords(selectedRecord).length && (
+                    {!sharedKeywords(activeRecord).length && (
                       <small>공통 핵심 단어가 없습니다.</small>
                     )}
                   </div>
@@ -2791,7 +2878,7 @@ export default function Home() {
             )}
             <div className="modal-footer">
               <span>
-                원본: {selectedRecord.sourceFile} · {selectedRecord.sourceRow}행
+                원본: {activeRecord.sourceFile} · {activeRecord.sourceRow}행
               </span>
               <div className="modal-nav" aria-label="기록 이동">
                 <button
@@ -2819,7 +2906,7 @@ export default function Home() {
                 </button>
                 <button className="modal-confirm" type="button" onClick={confirmAndAdvance}>
                   <Check size={16} />
-                  {checkedKeys.has(selectedRecord.checkKey) ? "확인됨 · 다음" : "확인 완료 · 다음"}
+                  {checkedKeys.has(activeRecord.checkKey) ? "확인됨 · 다음" : "확인 완료 · 다음"}
                 </button>
               </div>
             </div>

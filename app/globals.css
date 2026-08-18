@@ -1920,6 +1920,88 @@ footer {
   line-height: 1.6;
 }
 
+/* 해당 없는 지적을 집계에서 빼는 예외 처리 */
+.exception-button {
+  margin-left: auto;
+  padding: 4px 9px;
+  border: 1px solid var(--brand-200);
+  border-radius: 8px;
+  background: white;
+  color: var(--brand-800);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.exception-button:hover {
+  border-color: var(--brand-500);
+  background: var(--brand-25);
+}
+
+.excepted-findings {
+  margin: 14px 28px 0;
+  padding: 13px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: #fbfaf4;
+}
+
+.excepted-findings > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.excepted-findings strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.excepted-findings > div small {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.excepted-findings ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.excepted-findings li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  font-size: 12px;
+}
+
+.excepted-findings s {
+  color: var(--ink-soft);
+}
+
+.excepted-findings li button {
+  padding: 2px 7px;
+  border: none;
+  border-radius: 6px;
+  background: var(--brand-50);
+  color: var(--brand-800);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.excepted-findings li button:hover {
+  background: var(--brand-100);
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
