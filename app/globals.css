@@ -1177,10 +1177,18 @@ input[type="range"] {
 .results-heading {
   display: flex;
   align-items: center;
+  /* 필터가 한 줄에 다 못 들어가면 제목을 누르지 말고 다음 줄로 흘린다.
+     제목이 눌리면 한 글자씩 세로로 꺾여 보인다. */
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px 18px;
   padding: 23px 25px;
   border-bottom: 1px solid var(--line);
+}
+
+.results-heading > div:first-child {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .results-heading h2 em {

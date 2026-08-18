@@ -1754,9 +1754,13 @@ export default function Home() {
     .audit-item:hover, .audit-item.active { border-color:#a8ded6; background:#fdfcf7; color:var(--brand-800); }
     .audit-disclaimer { margin:14px 0 0; color:#3b7871; font-size:13px; }
     .results-panel { margin-top:16px; overflow:hidden; }
-    .results-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:23px 25px; border-bottom:1px solid var(--line); }
+    /* 컨트롤이 한 줄에 다 못 들어가면 제목을 누르지 말고 다음 줄로 흘린다.
+       제목이 눌리면 한 글자씩 세로로 꺾여 보인다. */
+    .results-heading { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:14px 18px; padding:23px 25px; border-bottom:1px solid var(--line); }
+    .results-heading > div:first-child { flex-shrink:0; white-space:nowrap; }
     .results-heading h2 em { margin-left:5px; color:var(--brand-800); font-size:16px; font-style:normal; }
-    .snapshot-controls { display:flex; align-items:center; gap:8px; }
+    .snapshot-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+    .snapshot-search { min-width:210px; }
     .snapshot-search,.snapshot-select { height:42px; padding:0 12px; border:1px solid var(--line); border-radius:10px; background:#ffffff; color:#2a655e; font-size:13px; line-height:36px; }
     .snapshot-search { width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .table-wrap { overflow-x:auto; }
