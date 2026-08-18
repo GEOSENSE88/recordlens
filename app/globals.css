@@ -1920,67 +1920,6 @@ footer {
   line-height: 1.6;
 }
 
-/* 유사도를 낮추는 고쳐 쓰기 안내 */
-.rewrite-guide {
-  margin: 16px 28px 0;
-  padding: 17px 19px;
-  border: 1px solid var(--brand-100);
-  border-radius: 14px;
-  background: var(--brand-25);
-}
-
-.rewrite-guide h3 {
-  margin: 0 0 7px;
-  color: var(--brand-900);
-  font-size: 15px;
-}
-
-.rewrite-guide > p {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.rewrite-guide ol {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  margin: 12px 0 0;
-  padding: 0 0 0 22px;
-}
-
-.rewrite-guide li {
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.rewrite-sentence {
-  color: var(--ink-soft);
-}
-
-.rewrite-guide li strong {
-  margin-left: 7px;
-  color: var(--brand-700);
-  white-space: nowrap;
-}
-
-.rewrite-example {
-  margin: 12px 0 0 !important;
-  padding: 10px 12px;
-  border-radius: 9px;
-  background: white;
-  color: var(--ink) !important;
-}
-
-.rewrite-guide small {
-  display: block;
-  margin-top: 9px;
-  color: var(--warning);
-  font-size: 12px;
-}
-
 .comparison-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
