@@ -139,6 +139,14 @@ test("no longer flags instructor names at all", () => {
   assert.equal(issues.length, 0);
 });
 
+test("no longer flags parental status wording at all", () => {
+  // 사회 탐구에서 부모의 소득·학력을 연구 주제로 다루는 서술이 흔해 항목을 뺐다.
+  const issues = inspectRecordText(
+    "부모의 경제적 상황이 자녀 세대의 빈곤에 미치는 영향을 조건부확률로 탐구하고 부모의 학력과 소득을 반영한 확장을 계획함.",
+  );
+  assert.equal(issues.some((issue) => issue.label === "부모 지위"), false);
+});
+
 test("keeps bare mock-exam mentions but flags their scores", () => {
   // 모의고사는 과목 표기·문제 풀이 서술에 흔히 나오므로 단순 언급은 잡지 않는다.
   for (const text of [
