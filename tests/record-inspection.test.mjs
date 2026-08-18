@@ -174,13 +174,14 @@ test("covers the school-specific checklist rules", () => {
   const exempt = inspectRecordText("다산 정약용의 목민심서를 읽고 중국 산동성의 지리를 조사함.");
   assert.equal(exempt.some((issue) => issue.label === "학교 추측"), false);
 
-  // ② 기재 불가 약어: ODA, ESG, 아마존 협력 조약기구
+  // ② 기재 불가 약어: ODA, 아마존 협력 조약기구. ESG 는 흔한 표현이라 잡지 않는다.
   const acronyms = inspectRecordText("ESG 경영과 ODA 정책, 아마존 협력 조약기구의 역할을 조사함.")
     .filter((issue) => issue.type === "institution")
     .map((issue) => issue.match);
-  for (const name of ["ESG", "ODA", "아마존 협력 조약기구"]) {
+  for (const name of ["ODA", "아마존 협력 조약기구"]) {
     assert.equal(acronyms.includes(name), true, name + " 를 잡지 못했습니다.");
   }
+  assert.equal(acronyms.includes("ESG"), false);
 
   // ④ 헌혈 기관명: 지정 표기가 없으면 확인, 있으면 통과
   const donation = inspectRecordText("헌혈 봉사에 참여하여 생명 나눔을 실천함.");
