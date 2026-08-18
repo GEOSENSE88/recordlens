@@ -240,6 +240,11 @@ test("validates officer period dates", () => {
   assert.equal(mismatch.length, 1, "년도 오류를 잡지 못했습니다.");
   assert.equal(mismatch[0].guidance.includes("3학년"), true);
 
+  // 학급 임원은 실장으로, 자치회 임원은 부장·차장으로도 표기된다
+  assert.equal(officer("1학기 실장(2026.03.01.-2026.08.10.)으로 학급을 이끎.").length, 1);
+  assert.equal(officer("전교 학생자치회 홍보부 차장(2026.03.01.~2026.08.31.)으로 활동함.").length, 1);
+  assert.equal(officer("1학기 실장(2026.03.01.-2026.08.31.)으로 학급을 이끎.").length, 0);
+
   // 임원과 무관한 기간(수행 기간 등)은 건드리지 않는다
   assert.equal(officer("프로젝트 기간(2026.03.01.-2026.05.31.) 동안 자료를 수집함.").length, 0);
   // 동아리 회장 임기는 대상이 아니다

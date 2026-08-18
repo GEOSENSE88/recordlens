@@ -627,8 +627,14 @@ function collectOfficerPeriodIssues(text: string, output: InspectionIssue[]) {
     const before = text.slice(Math.max(0, index - 40), index);
     const after = text.slice(index + match[0].length, index + match[0].length + 20);
     const context = `${before} ${after}`;
-    // 임원 관련 기간만 본다. 동아리 회장 임기 표기는 대상이 아니다.
-    if (!/임원|회장|부회장|자치회|전교/.test(context) || /동아리/.test(before)) continue;
+    // 임원 관련 기간만 본다. 학급 임원은 실장, 학생자치회는 부장·차장으로도 표기된다.
+    // 동아리 회장 임기 표기는 대상이 아니다.
+    if (
+      !/임원|회장|부회장|자치회|전교|실장|반장|부장|차장/.test(context) ||
+      /동아리/.test(before)
+    ) {
+      continue;
+    }
 
     const [startYear, startMonth, startDay, endYear, endMonth, endDay] = [1, 2, 3, 4, 5, 6].map(
       (group) => Number(match[group]),
@@ -667,7 +673,8 @@ function collectOfficerPeriodIssues(text: string, output: InspectionIssue[]) {
         );
       } else if (
         !isCouncil &&
-        /학급/.test(context) &&
+        // 학급 임원은 실장·반장으로도 적는다.
+        /학급|실장|반장/.test(context) &&
         !(endYear === startYear && endMonth === 8 && endDay === 31)
       ) {
         push(
