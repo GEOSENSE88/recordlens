@@ -242,6 +242,33 @@ test("reports unmatched quotes and brackets at the right spot", () => {
   assert.equal(balanced.some((issue) => issue.label === "짝 안 맞는 부호"), false);
 });
 
+test("leaves scientific prime notation and chemistry terms alone", () => {
+  // RNA 5' 말단, 2'-O-methyl 같은 프라임 표기는 따옴표가 아니다.
+  for (const text of [
+    "mRNA의 5' 말단과 3' 방향의 구조를 비교하여 설명함.",
+    "2'-O-methyl 치환기 도입이 안정성에 미치는 영향을 분석함.",
+    "각도 35°12′ 지점의 태양 고도를 계산함.",
+  ]) {
+    const issues = inspectRecordText(text);
+    assert.equal(
+      issues.some((issue) => issue.label === "짝 안 맞는 부호" || issue.label === "따옴표 오입력"),
+      false,
+      text + " 에서 과학 표기를 따옴표로 오인했습니다.",
+    );
+  }
+  // 쌍극자 쌍극자 힘은 화학 용어다.
+  const chemistry = inspectRecordText("분자 사이의 쌍극자 쌍극자 힘과 분산력을 비교함.");
+  assert.equal(chemistry.some((issue) => issue.label === "단어 반복"), false);
+});
+
+test("pairs a spaced closing quote instead of flagging both quotes", () => {
+  // 닫는 따옴표 앞에 공백을 두는 표기(`유리할까? '라는`)는 짝으로 인정한다.
+  const spacedClose = inspectRecordText(
+    "에세이 작성에서 더 나아가 '수도권의 교육 환경이 진로 선택에 더 유리할까? '라는 질문을 제시하고 의견을 나눔.",
+  );
+  assert.equal(spacedClose.some((issue) => issue.label === "짝 안 맞는 부호"), false);
+});
+
 test("points at the quote that actually lacks its pair", () => {
   // 실제 사례: 세 쌍은 멀쩡하고 `통제'라는` 앞의 여는 따옴표만 빠졌다.
   // 마지막 따옴표가 아니라 짝이 없는 바로 그 자리를 짚어야 한다.

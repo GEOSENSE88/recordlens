@@ -324,7 +324,14 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
     const existing = records.get(key);
     const content = startSubject ? `${safeSubject}: ${cleanChunk}` : cleanChunk;
     if (existing) {
-      if (!existing.text.includes(cleanChunk)) existing.text = `${existing.text} ${cleanChunk}`.trim();
+      // 나이스는 쪽이 바뀌면 같은 학생 행을 다시 내려주는데, 이때 내용 일부나 전체가
+      // 다시 오기도 한다. 줄바꿈 자리의 공백 차이 때문에 문자열 그대로는 같은 내용을
+      // 못 알아볼 수 있어, 공백을 무시하고 포함 여부를 본다. (내용이 통째로 두 번
+      // 붙는 사고를 막는다.)
+      const spaceless = (value: string) => value.replace(/\s+/g, "");
+      if (!spaceless(existing.text).includes(spaceless(cleanChunk))) {
+        existing.text = `${existing.text} ${cleanChunk}`.trim();
+      }
     } else {
       records.set(key, {
         className: currentClass || "학급 미상",

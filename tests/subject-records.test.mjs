@@ -129,6 +129,8 @@ test("catches the newer 개인별 세특 opening phrases", () => {
     "교과융합탐구 프로그램 '배움 너머'에서 항암 치료를 탐구함.",
     "교과 융합 탐구 활동에서 주제를 정함.",
     "융합수업 탐구활동에서 자료를 수합함.",
+    // 문장 끝에 ` . `처럼 마침표 앞 공백이 있어도 나뉘어야 한다.
+    " 학교 간 융합 논증 역량 강화 심화 탐구 프로그램에 참여하여 차세대 소재를 탐구함.",
   ]) {
     const text = "영어 독해와 작문: 영시를 감상하고 협력적으로 소통함." + opener;
     const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));

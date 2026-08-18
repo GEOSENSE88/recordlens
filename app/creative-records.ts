@@ -119,7 +119,11 @@ export function parseCreativeActivityRows(rows: unknown[][]): CreativeActivityRe
     const key = [currentClass, currentNumber, currentName, currentGrade, currentActivity].join("|");
     const existing = records.get(key);
     if (existing) {
-      if (!existing.text.includes(detail)) existing.text = `${existing.text} ${detail}`.trim();
+      // 쪽이 바뀔 때 같은 내용이 다시 오면 공백 차이가 있어도 이어 붙이지 않는다.
+      const spaceless = (value: string) => value.replace(/\s+/g, "");
+      if (!spaceless(existing.text).includes(spaceless(detail))) {
+        existing.text = `${existing.text} ${detail}`.trim();
+      }
     } else {
       records.set(key, {
         className: currentClass || "학급 미상",

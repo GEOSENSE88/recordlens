@@ -165,13 +165,13 @@ function pairStraightQuotes(
   for (let i = 0; i < text.length; i += 1) {
     if (text[i] !== quote) continue;
     const before = i > 0 ? text[i - 1] : "";
-    const after = i + 1 < text.length ? text[i + 1] : "";
-    const opensHere =
-      (before === "" || /[\s([{「『〈《]/.test(before)) &&
-      (after !== "" && !/[\s)\]}」』〉》.,!?]/.test(after));
+    // 숫자 뒤 따옴표는 RNA 5' 말단, 2'-O-methyl 같은 과학 표기다. 다만 열린 따옴표가
+    // 있으면 `'1984'`처럼 숫자로 끝나는 제목의 닫는 따옴표일 수 있으니 짝짓기에 쓴다.
+    if (/\d/.test(before) && !opens.length) continue;
     const closesHere = before !== "" && !/[\s([{「『〈《]/.test(before);
-    if (opensHere) opens.push(i);
-    else if (closesHere || opens.length) {
+    if (closesHere || opens.length) {
+      // 앞이 공백이라 여는 것처럼 보여도(`유리할까? '라는`), 열린 따옴표가
+      // 있으면 닫는 것으로 본다. 닫는 따옴표 앞에 공백을 두는 표기가 실제로 있다.
       const open = opens.pop();
       if (open === undefined) unmatched.push(i);
       else pairs.push([open, i]);
@@ -660,11 +660,25 @@ export function inspectRecordText(text: string): InspectionIssue[] {
     }
   }
 
+  // 숫자 뒤 프라임(′ ″)은 각도·분·초나 염기서열 5′ 말단 같은 과학 표기이고,
+  // `쌍극자 쌍극자 힘`은 화학 용어라 단어 반복이 아니다.
+  const withoutScientific = issues.filter((issue) => {
+    if (
+      issue.label === "따옴표 오입력" &&
+      /^[′″]$/.test(issue.match) &&
+      /\d/.test(text[issue.index - 1] ?? "")
+    ) {
+      return false;
+    }
+    if (issue.label === "단어 반복" && issue.match.includes("쌍극자")) return false;
+    return true;
+  });
+
   // 따옴표·낫표 안은 대부분 책·작품 제목이다. `'멋진 신세계'`의 신세계처럼
   // 제목 속 낱말이 기재금지어·기관명·상호명에 걸려도 지적하지 않는다.
   const titleRanges = quotedRanges(text);
   const NAMED_TYPES = new Set<InspectionIssueType>(["prohibited", "institution", "business"]);
-  const outsideTitles = issues.filter(
+  const outsideTitles = withoutScientific.filter(
     (issue) =>
       !NAMED_TYPES.has(issue.type) ||
       !titleRanges.some(
