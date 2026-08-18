@@ -125,12 +125,82 @@ const TYPO_RULES: TextRule[] = [
     reference: "문장 형식 점검",
   },
   {
-    expression: /역활|됬|되여|어떻해|왠만|뿐만아니라|할수(?=\s|[.,!?]|$)/gu,
+    expression:
+      /역활|됬|되여|어떻해|왠만|몇일|갯수|촛점|왠일|웬지|오랫만|희안|곰곰히|일일히|틈틈히|뿐만아니라|할수(?=\s|[.,!?]|$)/gu,
     label: "맞춤법 의심",
     guidance: "자주 발생하는 맞춤법 또는 띄어쓰기 오류가 의심됩니다. 원문을 확인해 주세요.",
     reference: "맞춤법 보조 점검",
   },
+  {
+    // 억음 부호(`·｀)나 프라임(′·″)이 따옴표 대신 들어가는 경우.
+    // 한글 워드나 스마트폰 자판에서 붙여 넣을 때 자주 섞여 들어온다.
+    expression: /[｀`´＇＂′″‵‛‟〝〞〃]/gu,
+    label: "따옴표 오입력",
+    guidance:
+      "작은따옴표(')나 큰따옴표(\")가 아닌 비슷한 모양의 특수기호가 입력된 것으로 보입니다. 올바른 따옴표로 바꿔 주세요.",
+    reference: "문장 형식 점검",
+  },
 ];
+
+/** 여닫는 짝을 검사할 부호. 자판 화살괄호(< >)는 비교·화살표로도 쓰여 제외한다. */
+const PAIRED_MARKS: Array<{ open: string; close: string; name: string }> = [
+  { open: "‘", close: "’", name: "작은따옴표" },
+  { open: "“", close: "”", name: "큰따옴표" },
+  { open: "(", close: ")", name: "소괄호" },
+  { open: "[", close: "]", name: "대괄호" },
+  { open: "「", close: "」", name: "낫표" },
+  { open: "『", close: "』", name: "겹낫표" },
+  { open: "〈", close: "〉", name: "홑화살괄호" },
+  { open: "《", close: "》", name: "겹화살괄호" },
+];
+
+/**
+ * 따옴표·괄호의 여닫는 짝이 맞는지 확인한다.
+ * 굽은따옴표는 여는 부호와 닫는 부호가 다르므로 짝이 없는 위치를 정확히 짚을 수 있고,
+ * 곧은따옴표(' ")는 같은 문자를 여닫이로 함께 쓰므로 홀수 개일 때만 지적한다.
+ */
+function collectUnbalancedPairs(text: string, output: InspectionIssue[]) {
+  for (const mark of PAIRED_MARKS) {
+    const opens: number[] = [];
+    const unmatched: number[] = [];
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === mark.open) opens.push(i);
+      else if (text[i] === mark.close) {
+        if (opens.length) opens.pop();
+        else unmatched.push(i);
+      }
+    }
+    for (const index of [...unmatched, ...opens]) {
+      output.push({
+        type: "typo",
+        label: "짝 안 맞는 부호",
+        match: text[index],
+        guidance:
+          `${mark.name}의 여는 부호와 닫는 부호 수가 맞지 않습니다. 짝이 없는 부호의 위치를 표시했습니다.` +
+          (mark.open === "‘" ? " 영어 어퍼스트로피(’)로 쓰인 경우라면 무시해도 됩니다." : ""),
+        reference: "문장 형식 점검",
+        severity: "warning",
+        index,
+      });
+    }
+  }
+
+  for (const quote of ["'", '"']) {
+    const positions: number[] = [];
+    for (let i = 0; i < text.length; i += 1) if (text[i] === quote) positions.push(i);
+    if (positions.length % 2 === 1) {
+      output.push({
+        type: "typo",
+        label: "짝 안 맞는 부호",
+        match: quote,
+        guidance: `따옴표(${quote})가 홀수 개 입력되어 여닫는 짝이 맞지 않는 것으로 보입니다. 영어 어퍼스트로피(예: don't)라면 무시해도 됩니다.`,
+        reference: "문장 형식 점검",
+        severity: "warning",
+        index: positions[positions.length - 1],
+      });
+    }
+  }
+}
 
 /**
  * 여기서 말하는 특수문자는 키보드로 바로 칠 수 없는 기호다.
@@ -485,6 +555,7 @@ export function inspectRecordText(text: string): InspectionIssue[] {
   const issues: InspectionIssue[] = [];
 
   for (const rule of TYPO_RULES) collectMatches(text, "typo", rule, issues);
+  collectUnbalancedPairs(text, issues);
   for (const rule of PROHIBITED_RULES) collectMatches(text, "prohibited", rule, issues);
 
   SPECIAL_SYMBOL_EXPRESSION.lastIndex = 0;

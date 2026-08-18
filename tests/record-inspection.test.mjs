@@ -139,6 +139,50 @@ test("no longer flags instructor names at all", () => {
   assert.equal(issues.length, 0);
 });
 
+test("flags quote lookalikes that sneak in from word processors", () => {
+  const issues = inspectRecordText("｀꿈과 끼｀를 주제로 발표하고 ´성실´이라는 단어를 탐구함.");
+  const marks = issues.filter((issue) => issue.label === "따옴표 오입력").map((issue) => issue.match);
+  assert.equal(marks.includes("｀"), true, "전각 억음 부호를 잡지 못했습니다.");
+  assert.equal(marks.includes("´"), true, "양음 부호를 잡지 못했습니다.");
+
+  const normal = inspectRecordText("'꿈과 끼'를 주제로 \"성실\"이라는 단어를 탐구함.");
+  assert.equal(normal.some((issue) => issue.label === "따옴표 오입력"), false);
+});
+
+test("reports unmatched quotes and brackets at the right spot", () => {
+  const text = "‘창의적 사고에 대해 탐구함. 자료 조사(문헌 검토를 진행함.";
+  const issues = inspectRecordText(text).filter((issue) => issue.label === "짝 안 맞는 부호");
+  const marks = issues.map((issue) => issue.match);
+  assert.equal(marks.includes("‘"), true, "닫히지 않은 작은따옴표를 잡지 못했습니다.");
+  assert.equal(marks.includes("("), true, "닫히지 않은 소괄호를 잡지 못했습니다.");
+  for (const issue of issues) {
+    assert.equal(text[issue.index], issue.match, "짝 없는 부호의 위치가 원문과 어긋납니다.");
+  }
+
+  const odd = inspectRecordText('"성실"이라는 단어와 "꾸준함을 이어서 조사함.');
+  assert.equal(
+    odd.some((issue) => issue.label === "짝 안 맞는 부호" && issue.match === '"'),
+    true,
+    "홀수 개 곧은따옴표를 잡지 못했습니다.",
+  );
+
+  const balanced = inspectRecordText("‘창의 융합’ 프로젝트(3월)에서 「문화 상대주의」와 \"관용\"을 탐구함.");
+  assert.equal(balanced.some((issue) => issue.label === "짝 안 맞는 부호"), false);
+});
+
+test("catches the newly added common misspellings", () => {
+  const wrong = ["몇일 동안 관찰함.", "자료의 갯수를 정리함.", "논의의 촛점을 맞춤.", "오랫만에 실험을 재개함.", "곰곰히 생각하여 결론을 냄."];
+  for (const text of wrong) {
+    assert.equal(
+      inspectRecordText(text).some((issue) => issue.label === "맞춤법 의심"),
+      true,
+      text + " 에서 맞춤법 의심을 잡지 못했습니다.",
+    );
+  }
+  const fine = inspectRecordText("며칠 동안 개수를 세어 초점을 맞추고 오랜만에 곰곰이 생각함.");
+  assert.equal(fine.some((issue) => issue.label === "맞춤법 의심"), false);
+});
+
 test("leaves education authorities and mere patent mentions alone", () => {
   // 교육부·교육청은 교육 관련 기관이라 세특에 정상적으로 나온다.
   const education = inspectRecordText("교육부 고시와 교육청 자료를 참고하여 탐구함.");
