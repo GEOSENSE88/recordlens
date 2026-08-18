@@ -215,6 +215,37 @@ test("covers the school-specific checklist rules", () => {
   assert.equal(straight.some((issue) => issue.label === "따옴표 모양"), false);
 });
 
+test("validates officer period dates", () => {
+  const officer = (text) =>
+    inspectRecordText(text).filter((issue) => issue.label === "임원 기간");
+
+  // 올바른 표기는 통과
+  assert.equal(officer("(2026.03.01.-2026.08.31.) 학급 회장으로서 학급 회의를 이끎.").length, 0);
+  assert.equal(officer("전교 학생자치회 부회장(2026.03.01.~2026.08.10.)으로 봉사함.").length, 0);
+
+  // 달력에 없는 날짜
+  assert.equal(officer("(2026.02.30.-2026.08.31.) 학급 임원으로 활동함.").length, 1);
+  // 시작이 끝보다 늦음
+  assert.equal(officer("(2026.08.31.-2026.03.01.) 학급 임원으로 활동함.").length, 1);
+  // 학생자치회인데 8.31.까지로 적음
+  assert.equal(officer("학생자치회 부회장(2026.03.01.~2026.08.31.)으로 봉사함.").length, 1);
+  // 학급 임원인데 8.10.까지로 적음
+  assert.equal(officer("(2026.03.01.-2026.08.10.) 학급 회장으로 활동함.").length, 1);
+
+  // 학년-연도 정합: 1학년 2024면 3학년은 2026이어야 한다
+  const mismatch = officer(
+    "1학년 (2024.03.01.-2024.08.31.) 학급 회장, 2학년 (2025.03.01.-2025.08.31.) 학급 부회장, " +
+      "3학년 (2025.03.01.-2025.08.31.) 학급 회장으로 활동함.",
+  );
+  assert.equal(mismatch.length, 1, "년도 오류를 잡지 못했습니다.");
+  assert.equal(mismatch[0].guidance.includes("3학년"), true);
+
+  // 임원과 무관한 기간(수행 기간 등)은 건드리지 않는다
+  assert.equal(officer("프로젝트 기간(2026.03.01.-2026.05.31.) 동안 자료를 수집함.").length, 0);
+  // 동아리 회장 임기는 대상이 아니다
+  assert.equal(officer("동아리 회장(2026.03.01.-2026.12.31.)으로 활동함.").length, 0);
+});
+
 test("no longer flags journal or thesis wording at all", () => {
   // 학회지·논문은 문헌 조사 서술에 정상적으로 나오는 말이라 항목을 뺐다.
   const issues = inspectRecordText(

@@ -602,6 +602,117 @@ const ALLOWED_INSTITUTIONS = new Set([
   "중앙교육연수원",
 ]);
 
+/** 임원 표기 옆의 기간. `2026.03.01.-2026.08.31.` 또는 `~` 구분을 모두 받는다. */
+const OFFICER_RANGE_EXPRESSION =
+  /(20\d{2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?\s*[-~〜∼]\s*(20\d{2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*\.?/gu;
+
+function isValidCalendarDate(year: number, month: number, day: number) {
+  if (month < 1 || month > 12 || day < 1) return false;
+  return day <= new Date(year, month, 0).getDate();
+}
+
+/**
+ * 임원 기간 표기의 날짜를 검사한다(학교 점검 중점사항 ⑨).
+ *  - 달력에 없는 날짜, 시작이 끝보다 늦은 기간
+ *  - 3월 1일 시작 기간의 끝 날짜: 학급 임원은 8.31., 학생자치회 임원은 8.10.
+ *  - 학년과 연도의 정합: 1학년 2024라면 3학년은 2026이어야 한다. 한 기록 안에서
+ *    (연도-학년) 값이 서로 어긋나는 표기를 년도 오류로 본다.
+ */
+function collectOfficerPeriodIssues(text: string, output: InspectionIssue[]) {
+  const gradeYearPairs: Array<{ grade: number; year: number; index: number; match: string }> = [];
+
+  OFFICER_RANGE_EXPRESSION.lastIndex = 0;
+  for (const match of text.matchAll(OFFICER_RANGE_EXPRESSION)) {
+    const index = match.index ?? 0;
+    const before = text.slice(Math.max(0, index - 40), index);
+    const after = text.slice(index + match[0].length, index + match[0].length + 20);
+    const context = `${before} ${after}`;
+    // 임원 관련 기간만 본다. 동아리 회장 임기 표기는 대상이 아니다.
+    if (!/임원|회장|부회장|자치회|전교/.test(context) || /동아리/.test(before)) continue;
+
+    const [startYear, startMonth, startDay, endYear, endMonth, endDay] = [1, 2, 3, 4, 5, 6].map(
+      (group) => Number(match[group]),
+    );
+    const push = (guidance: string, severity: "danger" | "warning" = "warning") =>
+      output.push({
+        type: "typo",
+        label: "임원 기간",
+        match: match[0],
+        guidance,
+        reference: "학교 점검 중점사항 ⑨",
+        severity,
+        index,
+      });
+
+    if (
+      !isValidCalendarDate(startYear, startMonth, startDay) ||
+      !isValidCalendarDate(endYear, endMonth, endDay)
+    ) {
+      push("달력에 없는 날짜가 있습니다. 임원 기간 표기를 확인해 주세요.", "danger");
+      continue;
+    }
+    const start = startYear * 10000 + startMonth * 100 + startDay;
+    const end = endYear * 10000 + endMonth * 100 + endDay;
+    if (start >= end) {
+      push("기간의 시작이 끝보다 늦거나 같습니다. 임원 기간 표기를 확인해 주세요.", "danger");
+      continue;
+    }
+
+    if (startMonth === 3 && startDay === 1) {
+      // 구분 표기는 기간 앞뒤 어느 쪽에나 올 수 있다. 자치회 표기가 있으면 자치회로 본다.
+      const isCouncil = /자치회|전교/.test(context);
+      if (isCouncil && !(endYear === startYear && endMonth === 8 && endDay === 10)) {
+        push(
+          `학생자치회 임원의 1학기 기간은 ${startYear}.03.01.~${startYear}.08.10. 입니다. 날짜를 확인해 주세요.`,
+        );
+      } else if (
+        !isCouncil &&
+        /학급/.test(context) &&
+        !(endYear === startYear && endMonth === 8 && endDay === 31)
+      ) {
+        push(
+          `학급 임원의 1학기 기간은 ${startYear}.03.01.-${startYear}.08.31. 입니다. 날짜를 확인해 주세요.`,
+        );
+      }
+    }
+
+    const gradeMatches = [...before.matchAll(/([1-3])\s*학년/g)];
+    const nearestGrade = gradeMatches[gradeMatches.length - 1];
+    if (nearestGrade) {
+      gradeYearPairs.push({
+        grade: Number(nearestGrade[1]),
+        year: startYear,
+        index,
+        match: match[0],
+      });
+    }
+  }
+
+  if (gradeYearPairs.length >= 2) {
+    // (연도-학년)은 같은 학생 안에서 항상 같아야 한다. 1학년 2024 ↔ 3학년 2026.
+    const offsetCounts = new Map<number, number>();
+    for (const pair of gradeYearPairs) {
+      const offset = pair.year - pair.grade;
+      offsetCounts.set(offset, (offsetCounts.get(offset) ?? 0) + 1);
+    }
+    if (offsetCounts.size > 1) {
+      const majority = [...offsetCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      for (const pair of gradeYearPairs) {
+        if (pair.year - pair.grade === majority) continue;
+        output.push({
+          type: "typo",
+          label: "임원 기간",
+          match: pair.match,
+          guidance: `${pair.grade}학년 임원 기간의 연도(${pair.year})가 같은 기록의 다른 학년 표기와 어긋납니다. 년도 오류가 아닌지 확인해 주세요.`,
+          reference: "학교 점검 중점사항 ⑨",
+          severity: "danger",
+          index: pair.index,
+        });
+      }
+    }
+  }
+}
+
 function collectMatches(
   text: string,
   type: InspectionIssueType,
@@ -632,6 +743,7 @@ export function inspectRecordText(text: string): InspectionIssue[] {
 
   for (const rule of TYPO_RULES) collectMatches(text, "typo", rule, issues);
   collectUnbalancedPairs(text, issues);
+  collectOfficerPeriodIssues(text, issues);
   for (const rule of PROHIBITED_RULES) collectMatches(text, "prohibited", rule, issues);
 
   SPECIAL_SYMBOL_EXPRESSION.lastIndex = 0;
