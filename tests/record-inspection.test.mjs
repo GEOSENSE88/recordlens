@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { inspectRecordText } from "../app/record-inspection.ts";
+import { inspectRecordText, lengthOverflowIssue, neisByteLength } from "../app/record-inspection.ts";
 
 test("flags representative 2026 student-record review candidates", () => {
   const issues = inspectRecordText(
@@ -67,6 +67,26 @@ test("keeps award wording out of unrelated compounds", () => {
       `${text} 에서 대회·수상 지적이 사라졌습니다.`,
     );
   }
+});
+
+test("flags records that exceed the neis byte limit", () => {
+  assert.equal(neisByteLength("가나다"), 9);
+  assert.equal(neisByteLength("ab 다"), 6);
+
+  // 한도 이내(한글 500자 = 1,500바이트)는 지적하지 않는다.
+  const within = "가".repeat(500);
+  assert.equal(lengthOverflowIssue(within, 1500), null);
+
+  // 한도를 훌쩍 넘으면(개인세특이 붙은 모양) 넘는 지점을 짚는다.
+  const first = "학생의 성실한 태도가 돋보임. ".repeat(40); // 약 480자
+  const appended = "코로나 시기 간호 현장의 변화를 문헌으로 탐구함. ".repeat(30);
+  const merged = first + appended;
+  const issue = lengthOverflowIssue(merged, 1500);
+  assert.notEqual(issue, null);
+  assert.equal(issue.label, "분량 초과");
+  assert.equal(merged.slice(issue.index, issue.index + issue.match.length), issue.match);
+  // 표시 지점은 한도 부근 이후의 문장 시작이다.
+  assert.equal(issue.index > first.length * 0.8, true);
 });
 
 test("covers the moe field-inspection additions", () => {

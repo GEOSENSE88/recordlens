@@ -916,6 +916,57 @@ export function inspectRecordText(text: string): InspectionIssue[] {
   });
 }
 
+/** 나이스 글자수 기준(한글 3바이트)과 같은 UTF-8 바이트 길이. */
+export function neisByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * 나이스 입력 한도를 넘는 기록을 잡는다(과목·자율·동아리 1,500바이트, 진로 2,100바이트).
+ * 한도는 나이스가 강제하므로, 정상적인 기록 하나가 이를 넘을 수 없다. 넘었다면
+ * 표지 없는 개인별 세특이나 다른 과목이 붙어 있다는 뜻이다.
+ *
+ * 자동으로 자르지는 않는다. 교사가 한도를 꽉 채우지 않았다면 어디까지가 원래
+ * 기록인지 알 수 없어, 자르면 엉뚱한 경계가 조용히 생긴다. 대신 한도를 넘는
+ * 지점부터를 강조해 담당자가 직접 확인하게 한다.
+ */
+export function lengthOverflowIssue(text: string, limitBytes: number): InspectionIssue | null {
+  // 과목명 접두사·PDF 공백 변형 몫으로 여유를 둔다.
+  const margin = 120;
+  if (neisByteLength(text) <= limitBytes + margin) return null;
+
+  // 한도 바이트가 넘어가는 글자 위치를 찾고, 다음 문장 시작으로 옮긴다.
+  const encoder = new TextEncoder();
+  let bytes = 0;
+  let overflowAt = text.length;
+  for (let i = 0; i < text.length; i += 1) {
+    bytes += encoder.encode(text[i]).length;
+    if (bytes > limitBytes) {
+      overflowAt = i;
+      break;
+    }
+  }
+  const nextSentence = text.slice(overflowAt).search(/[.!?]\s*/);
+  if (nextSentence >= 0) {
+    const afterMark = overflowAt + nextSentence;
+    const rest = text.slice(afterMark).match(/^[.!?]\s*/);
+    overflowAt = afterMark + (rest ? rest[0].length : 1);
+  }
+  if (overflowAt >= text.length) overflowAt = Math.max(0, text.length - 20);
+
+  return {
+    type: "typo",
+    label: "분량 초과",
+    match: text.slice(overflowAt, overflowAt + 20),
+    guidance:
+      `나이스 입력 한도(${limitBytes.toLocaleString("ko-KR")}바이트)를 넘는 기록입니다. ` +
+      "표지 없는 개인별 세특이나 다른 과목·영역의 내용이 붙어 있을 수 있으니, 표시된 지점 부근을 확인해 주세요.",
+    reference: "나이스 입력 한도 대조",
+    severity: "warning",
+    index: overflowAt,
+  };
+}
+
 export const INSPECTION_LABELS: Record<InspectionIssueType, string> = {
   typo: "오탈자",
   symbol: "특수기호",

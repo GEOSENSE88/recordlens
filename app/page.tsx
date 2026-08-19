@@ -36,6 +36,7 @@ import {
   ENTITY_RULES_SUPPORTED,
   INSPECTION_LABELS,
   inspectRecordText,
+  lengthOverflowIssue,
   type InspectionIssue,
   type InspectionIssueType,
 } from "./record-inspection";
@@ -1410,6 +1411,24 @@ export default function Home() {
 
     // 확인 표시 열쇠는 병합이 끝난 최종 본문으로 만들어야 같은 파일을 다시 올려도 유지된다.
     const keyed = baseRecords.map((record) => ({ ...record, checkKey: checkKeyOf(record) }));
+
+    // 나이스 입력 한도를 넘는 기록은 표지 없는 개인별 세특 등이 붙어 있다는 신호다.
+    for (const record of keyed) {
+      const body =
+        record.recordType === "subject"
+          ? record.text.replace(/^[^:]{1,30}:\s*/, "")
+          : record.text;
+      const limit =
+        record.recordType === "creative" && record.subject === "진로활동" ? 2100 : 1500;
+      const overflow = lengthOverflowIssue(body, limit);
+      if (overflow) {
+        // 본문 위치를 원문(record.text) 기준으로 되돌린다.
+        const offset = record.text.length - body.length;
+        record.issues = [...record.issues, { ...overflow, index: overflow.index + offset }].sort(
+          (a, b) => a.index - b.index,
+        );
+      }
+    }
 
     // 내장 맞춤법 사전 + 전체 기록 빈도로 오탈자 의심 어절을 찾는다.
     // 사전(약 14MB)은 처음 한 번만 내려받고, 실패하면 이 검사만 건너뛴다.
