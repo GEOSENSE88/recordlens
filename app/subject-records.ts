@@ -113,6 +113,12 @@ export const KNOWN_SUBJECTS = new Set([
   "인공지능 수학",
   "융합과학",
   "과학사",
+  "교육학",
+  "창의 경영",
+  "고급 생명과학",
+  "고급 화학",
+  "고급 물리학",
+  "데이터과학과 머신러닝",
 ]);
 
 /** 마침표 뒤 공백은 있어도 없어도 되고, 과목명에는 유니코드 로마숫자를 허용한다. */
@@ -211,8 +217,15 @@ export const PERSONAL_RECORD_SUBJECT = "개인별 세특";
  *   (프로그램 표지 없이 시작하는 진로 연계 문헌 탐구. 원본 셀에 구분자가 없어
  *    시작 표현을 직접 등록하는 수밖에 없다.)
  */
-const PERSONAL_RECORD_EXPRESSION =
-  /(?:^|[.!?]\s*)(수업량\s*유연화|학교\s*자율\s*과정|진로\s*연계\s*교과\s*융합|교과\s*융합\s*(?:수업|탐구)|융합\s*수업\s*탐구|학교\s*간\s*융합|코로나19\s*당시)/gu;
+const PERSONAL_MARKER_BODY =
+  "수업량\\s*유연화|학교\\s*자율\\s*과정|진로\\s*연계\\s*교과\\s*융합|교과\\s*융합\\s*(?:수업|탐구)|융합\\s*수업\\s*탐구|학교\\s*간\\s*융합|코로나19\\s*당시|배움\\s*너머";
+const PERSONAL_RECORD_EXPRESSION = new RegExp(`(?:^|[.!?]\\s*)(${PERSONAL_MARKER_BODY})`, "gu");
+/** 문장 중간에 든 개인세특 표지(예: `…경험을 바탕으로 교과융합탐구 프로그램 배움너머에 참여하여…`). */
+const PERSONAL_MARKER_ANYWHERE = new RegExp(PERSONAL_MARKER_BODY, "gu");
+
+/** 나이스 입력 한도(1,500바이트) + 여유. 이보다 긴 과목 조각은 무언가 붙어 있다. */
+const SEGMENT_BYTE_LIMIT = 1620;
+const byteEncoder = new TextEncoder();
 
 type Boundary = {
   /** 이 조각이 시작하는 위치. 앞 조각은 여기서 끝난다. */
@@ -289,5 +302,49 @@ export function splitSubjectSegments(
     body: text.slice(boundary.contentStart, kept[index + 1]?.start ?? text.length),
   }));
 
-  return { leading, segments };
+  return { leading, segments: splitOversizedSegments(segments) };
+}
+
+/**
+ * 나이스 한도를 넘는 과목 조각에서 문장 중간의 개인세특 표지를 찾아 잘라낸다.
+ *
+ * 개인세특이 표지 문구로 문장을 시작하지 않고 `…경험을 바탕으로 교과융합탐구
+ * 프로그램 배움너머에 참여하여…`처럼 첫 문장 중간에 표지가 드는 경우가 있다.
+ * 문장 시작 표지만 보는 기본 분리로는 못 자르므로, 조각이 입력 한도(1,500바이트)를
+ * 확실히 넘을 때에 한해 표지가 든 문장의 시작 지점에서 자른다.
+ * 한도 초과는 나이스가 강제하는 규칙이라, 이 조건에서는 병합이 확실하다.
+ */
+function splitOversizedSegments(segments: SubjectSegment[]): SubjectSegment[] {
+  const refined: SubjectSegment[] = [];
+  for (const segment of segments) {
+    if (
+      segment.subject === PERSONAL_RECORD_SUBJECT ||
+      byteEncoder.encode(segment.body).length <= SEGMENT_BYTE_LIMIT
+    ) {
+      refined.push(segment);
+      continue;
+    }
+    PERSONAL_MARKER_ANYWHERE.lastIndex = 0;
+    const marker = PERSONAL_MARKER_ANYWHERE.exec(segment.body);
+    if (!marker) {
+      refined.push(segment);
+      continue;
+    }
+    // 표지가 든 문장의 시작으로 되돌린다. 첫 문장 안이라 되돌릴 곳이 없으면 그대로 둔다.
+    const before = segment.body.slice(0, marker.index);
+    const sentenceEnd = Math.max(
+      before.lastIndexOf("."),
+      before.lastIndexOf("!"),
+      before.lastIndexOf("?"),
+    );
+    if (sentenceEnd < 0) {
+      refined.push(segment);
+      continue;
+    }
+    let cut = sentenceEnd + 1;
+    while (cut < segment.body.length && /\s/.test(segment.body[cut])) cut += 1;
+    refined.push({ subject: segment.subject, body: segment.body.slice(0, cut) });
+    refined.push({ subject: PERSONAL_RECORD_SUBJECT, body: segment.body.slice(cut) });
+  }
+  return refined;
 }

@@ -124,6 +124,25 @@ test("recognises single-student minority subjects from the built-in list", () =>
   );
 });
 
+test("cuts an oversized segment at the sentence that carries a mid-sentence marker", () => {
+  // 개인세특 첫 문장 중간에 표지(배움너머)가 드는 경우: 한도를 넘을 때만 자른다.
+  const subjectBody = "지문의 구조를 분석하고 협력적으로 소통함. ".repeat(30); // 약 1,650바이트
+  const personal =
+    "의약품 순도 결정 실험에서 흡광도를 분석한 경험을 바탕으로 교과융합탐구 프로그램 배움너머에 참여하여 정량 분석 원리를 탐구함. 분광분석법의 적용 한계를 정리함.";
+  const text = "영어 독해와 작문: " + subjectBody + personal;
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["영어 독해와 작문", "개인별 세특"],
+  );
+  assert.equal(segments[1].body.startsWith("의약품 순도"), true, "표지가 든 문장의 시작에서 잘라야 합니다.");
+
+  // 한도 이내면 문장 중간 표지로는 자르지 않는다.
+  const short = "영어 독해와 작문: 수업에서 배움 너머의 의미를 토론함.";
+  const shortSplit = splitSubjectSegments(short, subjectNamesFromTexts([short]));
+  assert.deepEqual(shortSplit.segments.map((segment) => segment.subject), ["영어 독해와 작문"]);
+});
+
 test("catches the newer 개인별 세특 opening phrases", () => {
   for (const opener of [
     "교과융합탐구 프로그램 '배움 너머'에서 항암 치료를 탐구함.",
