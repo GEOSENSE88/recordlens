@@ -1557,6 +1557,22 @@ tbody tr:hover {
   color: #1c716c;
 }
 
+/* 오탈자 유형 안의 세부 계열 */
+.inspection-chip.type-quote {
+  background: #efe9f9;
+  color: #5d4a9c;
+}
+
+.inspection-chip.type-spacing {
+  background: #e0f1f7;
+  color: #1f6b85;
+}
+
+.inspection-chip.type-format {
+  background: #e8ecef;
+  color: #44545e;
+}
+
 .record-issues small,
 .muted-inline {
   color: #3b7871;

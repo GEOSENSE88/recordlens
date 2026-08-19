@@ -902,6 +902,18 @@ function buildSentenceReuseCounts(records: CheckRecord[]): Map<string, number> {
 
 type ReusedSentence = { text: string; count: number };
 
+/**
+ * 칩 색 분류. 오탈자 유형 안에서도 따옴표 계열, 띄어쓰기, 형식(분량·임원 기간),
+ * 맞춤법 계열을 색으로 나눠 한눈에 구분되게 한다.
+ */
+function issueChipClass(issue: Pick<InspectionIssue, "type" | "label">): string {
+  if (issue.type !== "typo") return `type-${issue.type}`;
+  if (issue.label.includes("따옴표") || issue.label.includes("짝 안 맞는")) return "type-quote";
+  if (issue.label.includes("띄어쓰기")) return "type-spacing";
+  if (issue.label === "분량 초과" || issue.label === "임원 기간") return "type-format";
+  return "type-typo";
+}
+
 /** 나이스 바이트 수 뱃지. 한도를 넘으면 붉게 표시한다. */
 function ByteBadge({ bytes, limit }: { bytes: number; limit: number }) {
   return (
@@ -1937,6 +1949,9 @@ export default function Home() {
     .inspection-chip.type-business { background:#fceadb; color:#a05a1c; }
     .inspection-chip.type-typo { background:#eaf0f9; color:#375075; }
     .inspection-chip.type-symbol { background:#e3f2ec; color:#1c716c; }
+    .inspection-chip.type-quote { background:#efe9f9; color:#5d4a9c; }
+    .inspection-chip.type-spacing { background:#e0f1f7; color:#1f6b85; }
+    .inspection-chip.type-format { background:#e8ecef; color:#44545e; }
     .record-issues small, .muted-inline { color:#3b7871; font-size:12px; }
     .compare-button { display:inline-flex; align-items:center; gap:3px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--brand-900); font-size:12px; font-weight:800; text-decoration:none; }
     .compare-button b { font-size:17px; } .compare-button.disabled { color:#467d76; }
@@ -2874,7 +2889,7 @@ export default function Home() {
                           <div className="record-issues">
                             {record.issues.slice(0, 3).map((issue, index) => (
                               <span
-                                className={`inspection-chip type-${issue.type}`}
+                                className={`inspection-chip ${issueChipClass(issue)}`}
                                 key={`${issue.type}-${issue.index}-${index}`}
                                 title={`${issue.match}: ${issue.guidance}`}
                               >
@@ -3047,7 +3062,9 @@ export default function Home() {
                     {activeRecord.issues.map((issue, index) => (
                       <article key={`${issue.type}-${issue.index}-${index}`}>
                         <div>
-                          <span className={`inspection-chip type-${issue.type}`}>{issue.label}</span>
+                          <span className={`inspection-chip ${issueChipClass(issue)}`}>
+                            {issue.label}
+                          </span>
                           <strong>{issue.match}</strong>
                           <small>{issue.reference}</small>
                           <button
@@ -3075,7 +3092,9 @@ export default function Home() {
                 <ul>
                   {activeRecord.exceptedIssues?.map((issue, index) => (
                     <li key={`${issue.type}-${issue.index}-${index}`}>
-                      <span className={`inspection-chip type-${issue.type}`}>{issue.label}</span>
+                      <span className={`inspection-chip ${issueChipClass(issue)}`}>
+                        {issue.label}
+                      </span>
                       <s>{issue.match}</s>
                       <button
                         type="button"

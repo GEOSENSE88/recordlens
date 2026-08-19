@@ -77,6 +77,15 @@ export const REPORT_SCRIPT = String.raw`
 
   var RISK_LABELS = { exact: "완전 일치", high: "높은 유사도", review: "확인 필요", normal: "이상 없음" };
 
+  /* 칩 색 분류: 오탈자 유형 안에서도 따옴표·띄어쓰기·형식 계열을 색으로 나눈다. */
+  function chipClass(rule) {
+    if (rule.t !== "typo") return "type-" + rule.t;
+    if (rule.l.indexOf("따옴표") >= 0 || rule.l.indexOf("짝 안 맞는") >= 0) return "type-quote";
+    if (rule.l.indexOf("띄어쓰기") >= 0) return "type-spacing";
+    if (rule.l === "분량 초과" || rule.l === "임원 기간") return "type-format";
+    return "type-typo";
+  }
+
   /* ---- 기재요령 지적 위치 강조 ---- */
 
   function inspectionSegments(text, issues) {
@@ -403,7 +412,7 @@ export const REPORT_SCRIPT = String.raw`
     var pills = record.i.length
       ? record.i.slice(0, 3).map(function (issue) {
           var rule = rules[issue[0]];
-          return '<span class="inspection-chip type-' + rule.t + '" title="' +
+          return '<span class="inspection-chip ' + chipClass(rule) + '" title="' +
             escapeHtml(issue[2] + ": " + rule.g) + '">' + escapeHtml(rule.l) + "</span>";
         }).join("") + (record.i.length > 3 ? "<small>+" + (record.i.length - 3) + "</small>" : "")
       : '<span class="muted-inline">없음</span>';
