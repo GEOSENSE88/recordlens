@@ -14,6 +14,34 @@
 https://geosense88.github.io/recordlens/
 ```
 
+## 개인 서버 (26sannam3.site)
+
+GitHub Pages 주소가 막히거나 느릴 때를 대비해 같은 번들을 개인 서버에도 올려 둔다.
+
+```text
+https://26sannam3.site/recordlens/
+```
+
+배포는 아래 한 줄이면 끝난다. 빌드 → 전송 → 교체 → 확인까지 스크립트가 처리한다.
+
+```bash
+bash scripts/deploy-sannam.sh
+```
+
+서버 쪽 구성은 다음과 같다.
+
+- 파일 위치: `/var/www/recordlens/` (소유자 `www-data`)
+- nginx 설정: `/etc/nginx/sites-enabled/default` 안의 `SANNAM_RECORDLENS_START ~ END` 구간.
+  `26sannam3.site` 와 `www.26sannam3.site` 두 서버 블록에 같은 내용이 들어 있다.
+  `sites-available/default` 는 오래된 사본이라 실제로 쓰이지 않으니 반드시 `sites-enabled/default` 를 고친다.
+- 이 경로는 로그인 없이 열린다. 나머지 화면과 달리 학생 데이터를 서버에 두지 않는 도구라서다.
+
+되돌리려면 서버에서 직전 판을 다시 붙인다.
+
+```bash
+sudo rm -rf /var/www/recordlens && sudo mv /var/www/recordlens.old /var/www/recordlens
+```
+
 ## GitHub Actions와 컨테이너 이미지
 
 `main` 브랜치에 변경 사항이 올라가면 GitHub Actions가 Docker 이미지를 빌드해 아래 주소에 게시합니다.

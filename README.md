@@ -6,6 +6,7 @@ NEIS에서 내려받은 반별 엑셀 파일을 병합하고, 교과 세부능�
 ## 실행 주소
 
 - GitHub Pages: https://geosense88.github.io/recordlens/
+- 개인 서버: https://26sannam3.site/recordlens/
 - Sites: https://recordlens.geosense.chatgpt.site/
 
 ## 개인정보 처리
