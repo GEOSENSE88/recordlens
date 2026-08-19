@@ -1931,6 +1931,12 @@ export default function Home() {
     .record-issues { display:flex; align-items:center; flex-wrap:wrap; gap:5px; }
     .inspection-chip { display:inline-flex; align-items:center; padding:4px 6px; border-radius:6px; background:#fbf1d9; color:#8f6410; font-size:12px; font-weight:800; white-space:nowrap; }
     .inspection-chip.danger { background:#fdece6; color:#b8442a; }
+    /* 점검 종류별 색: 기재금지어(붉음), 기관명(노랑), 상호명(주황), 오탈자(파랑), 특수기호(청록) */
+    .inspection-chip.type-prohibited { background:#fdece6; color:#b8442a; }
+    .inspection-chip.type-institution { background:#fbf1d9; color:#8f6410; }
+    .inspection-chip.type-business { background:#fceadb; color:#a05a1c; }
+    .inspection-chip.type-typo { background:#eaf0f9; color:#375075; }
+    .inspection-chip.type-symbol { background:#e3f2ec; color:#1c716c; }
     .record-issues small, .muted-inline { color:#3b7871; font-size:12px; }
     .compare-button { display:inline-flex; align-items:center; gap:3px; padding:7px 8px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--brand-900); font-size:12px; font-weight:800; text-decoration:none; }
     .compare-button b { font-size:17px; } .compare-button.disabled { color:#467d76; }
@@ -2868,7 +2874,7 @@ export default function Home() {
                           <div className="record-issues">
                             {record.issues.slice(0, 3).map((issue, index) => (
                               <span
-                                className={`inspection-chip ${issue.severity}`}
+                                className={`inspection-chip type-${issue.type}`}
                                 key={`${issue.type}-${issue.index}-${index}`}
                                 title={`${issue.match}: ${issue.guidance}`}
                               >
@@ -3041,7 +3047,7 @@ export default function Home() {
                     {activeRecord.issues.map((issue, index) => (
                       <article key={`${issue.type}-${issue.index}-${index}`}>
                         <div>
-                          <span className={`inspection-chip ${issue.severity}`}>{issue.label}</span>
+                          <span className={`inspection-chip type-${issue.type}`}>{issue.label}</span>
                           <strong>{issue.match}</strong>
                           <small>{issue.reference}</small>
                           <button
@@ -3069,7 +3075,7 @@ export default function Home() {
                 <ul>
                   {activeRecord.exceptedIssues?.map((issue, index) => (
                     <li key={`${issue.type}-${issue.index}-${index}`}>
-                      <span className="inspection-chip">{issue.label}</span>
+                      <span className={`inspection-chip type-${issue.type}`}>{issue.label}</span>
                       <s>{issue.match}</s>
                       <button
                         type="button"

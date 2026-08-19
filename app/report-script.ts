@@ -403,7 +403,7 @@ export const REPORT_SCRIPT = String.raw`
     var pills = record.i.length
       ? record.i.slice(0, 3).map(function (issue) {
           var rule = rules[issue[0]];
-          return '<span class="inspection-chip ' + rule.s + '" title="' +
+          return '<span class="inspection-chip type-' + rule.t + '" title="' +
             escapeHtml(issue[2] + ": " + rule.g) + '">' + escapeHtml(rule.l) + "</span>";
         }).join("") + (record.i.length > 3 ? "<small>+" + (record.i.length - 3) + "</small>" : "")
       : '<span class="muted-inline">없음</span>';

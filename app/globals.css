@@ -1531,6 +1531,32 @@ tbody tr:hover {
   color: #b8442a;
 }
 
+/* 점검 종류별 색: 기재금지어(붉음), 기관명(노랑), 상호명(주황), 오탈자(파랑), 특수기호(청록) */
+.inspection-chip.type-prohibited {
+  background: #fdece6;
+  color: #b8442a;
+}
+
+.inspection-chip.type-institution {
+  background: #fbf1d9;
+  color: #8f6410;
+}
+
+.inspection-chip.type-business {
+  background: #fceadb;
+  color: #a05a1c;
+}
+
+.inspection-chip.type-typo {
+  background: #eaf0f9;
+  color: #375075;
+}
+
+.inspection-chip.type-symbol {
+  background: #e3f2ec;
+  color: #1c716c;
+}
+
 .record-issues small,
 .muted-inline {
   color: #3b7871;
