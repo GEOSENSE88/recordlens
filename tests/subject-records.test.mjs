@@ -143,6 +143,23 @@ test("cuts an oversized segment at the sentence that carries a mid-sentence mark
   assert.deepEqual(shortSplit.segments.map((segment) => segment.subject), ["영어 독해와 작문"]);
 });
 
+test("splits two personal-record programs that were merged into one block", () => {
+  // 개인세특 두 개(코로나19 탐구 + 배움너머 탐구)가 한 덩어리로 붙은 경우:
+  // 한도를 넘을 때만 두 번째 표지에서 다시 자른다.
+  const first =
+    "코로나19 당시의 구조 우선순위 사례와 트롤리 딜레마를 분석하며 칸트의 의무론을 탐색함. " +
+    "보편법칙과 선의지를 강조하는 정언명령을 바탕으로 준칙을 이끌어냄. ".repeat(14);
+  const second =
+    "교과융합탐구 프로그램 배움너머에 참여하여 생성형 인공지능 미디어가 청소년 인식에 미치는 영향을 주제로 탐구함. 문헌 조사로 인지 변화를 해석함.";
+  const text = "국어: 문학 감상을 통해 표현을 익힘." + first + second;
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["국어", "개인별 세특", "개인별 세특"],
+  );
+  assert.equal(segments[2].body.startsWith("교과융합탐구"), true);
+});
+
 test("catches the newer 개인별 세특 opening phrases", () => {
   for (const opener of [
     "교과융합탐구 프로그램 '배움 너머'에서 항암 치료를 탐구함.",

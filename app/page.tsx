@@ -31,7 +31,11 @@ import {
 } from "./creative-records";
 import { BRAND_ICON_SRC, NEIS_GUIDE_SRC } from "./brand-icon";
 import { REPORT_SCRIPT } from "./report-script";
-import { splitSubjectSegments, subjectNamesFromTexts } from "./subject-records";
+import {
+  splitOversizedRecord,
+  splitSubjectSegments,
+  subjectNamesFromTexts,
+} from "./subject-records";
 import {
   ENTITY_RULES_SUPPORTED,
   INSPECTION_LABELS,
@@ -441,7 +445,7 @@ function parseNeisRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
         matchName: "",
         matchText: "",
         exactGroupSize: 1,
-        recordType: "subject",
+        recordType: "subject" as const,
         issues: inspectRecordText(record.text),
         checkKey: "",
       };
@@ -576,7 +580,25 @@ function mergeCheckRecords(records: CheckRecord[]) {
     }
   }
 
-  return [...merged.values()].map((record, index) => {
+  // 쪽 나눔으로 여러 행·파일에 걸친 기록은 여기서 다 이어 붙인 뒤에야 한도를 넘는다.
+  // 그래서 개인세특 경계 자르기는 병합이 모두 끝난 이 지점에서 한다.
+  // (더 일찍 자르면 같은 학생의 `개인별 세특` 조각들이 같은 열쇠로 도로 합쳐진다.)
+  const expanded = [...merged.values()].flatMap((record) => {
+    if (record.recordType !== "subject") return [record];
+    const prefix = `${record.subject}: `;
+    const body = record.text.startsWith(prefix) ? record.text.slice(prefix.length) : record.text;
+    const pieces = splitOversizedRecord(record.subject, body);
+    if (pieces.length <= 1) return [record];
+    return pieces.map((piece, pieceIndex) => ({
+      ...record,
+      subject: piece.subject,
+      text: `${piece.subject}: ${piece.body.trim()}`,
+      // 같은 학생의 개인세특 조각이 여러 개면 구분자를 붙여 서로 뭉개지지 않게 한다.
+      id: `${record.id}-p${pieceIndex}`,
+    }));
+  });
+
+  return expanded.map((record, index) => {
     const normalizedText = normalizeText(record.text);
     return {
       ...record,

@@ -317,34 +317,54 @@ export function splitSubjectSegments(
 function splitOversizedSegments(segments: SubjectSegment[]): SubjectSegment[] {
   const refined: SubjectSegment[] = [];
   for (const segment of segments) {
-    if (
-      segment.subject === PERSONAL_RECORD_SUBJECT ||
-      byteEncoder.encode(segment.body).length <= SEGMENT_BYTE_LIMIT
-    ) {
-      refined.push(segment);
-      continue;
+    // 개인세특이 여러 개 붙은 경우도 있어(칸트 탐구 + 배움너머 탐구), 잘라낸 뒤쪽도
+    // 다시 검사한다. 한도 이내가 되면 멈춘다.
+    let current = segment;
+    let guard = 0;
+    while (guard < 6 && byteEncoder.encode(current.body).length > SEGMENT_BYTE_LIMIT) {
+      guard += 1;
+      const cut = findPersonalCut(current.body);
+      if (cut === null) break;
+      refined.push({ subject: current.subject, body: current.body.slice(0, cut) });
+      current = { subject: PERSONAL_RECORD_SUBJECT, body: current.body.slice(cut) };
     }
-    PERSONAL_MARKER_ANYWHERE.lastIndex = 0;
-    const marker = PERSONAL_MARKER_ANYWHERE.exec(segment.body);
-    if (!marker) {
-      refined.push(segment);
-      continue;
-    }
-    // 표지가 든 문장의 시작으로 되돌린다. 첫 문장 안이라 되돌릴 곳이 없으면 그대로 둔다.
-    const before = segment.body.slice(0, marker.index);
+    refined.push(current);
+  }
+  return refined;
+}
+
+/**
+ * 병합이 끝난 기록 하나를 다시 검사한다. 쪽 나눔으로 여러 행에 걸친 기록은
+ * 행 단위 분리 때는 한도 이내였다가 병합 후에야 한도를 넘기 때문에,
+ * 행을 이어 붙인 뒤에 한 번 더 잘라야 한다.
+ */
+export function splitOversizedRecord(subject: string, body: string): SubjectSegment[] {
+  return splitOversizedSegments([{ subject, body }]);
+}
+
+/** 한도를 넘은 조각 안에서 개인세특이 시작하는 자리를 찾는다. 없으면 null. */
+function findPersonalCut(body: string): number | null {
+  // 1) 문장 시작에 선 표지. 맨 앞 표지는 이 조각 자신의 시작이므로 건너뛴다.
+  PERSONAL_RECORD_EXPRESSION.lastIndex = 0;
+  for (const match of body.matchAll(PERSONAL_RECORD_EXPRESSION)) {
+    const start = (match.index ?? 0) + (match[0].length - match[1].length);
+    if (start > 0) return start;
+  }
+  // 2) 문장 중간에 든 표지는 그 문장의 시작으로 되돌린다.
+  PERSONAL_MARKER_ANYWHERE.lastIndex = 0;
+  for (const match of body.matchAll(PERSONAL_MARKER_ANYWHERE)) {
+    const index = match.index ?? 0;
+    if (index === 0) continue;
+    const before = body.slice(0, index);
     const sentenceEnd = Math.max(
       before.lastIndexOf("."),
       before.lastIndexOf("!"),
       before.lastIndexOf("?"),
     );
-    if (sentenceEnd < 0) {
-      refined.push(segment);
-      continue;
-    }
+    if (sentenceEnd < 0) continue;
     let cut = sentenceEnd + 1;
-    while (cut < segment.body.length && /\s/.test(segment.body[cut])) cut += 1;
-    refined.push({ subject: segment.subject, body: segment.body.slice(0, cut) });
-    refined.push({ subject: PERSONAL_RECORD_SUBJECT, body: segment.body.slice(cut) });
+    while (cut < body.length && /\s/.test(body[cut])) cut += 1;
+    if (cut > 0 && cut < body.length) return cut;
   }
-  return refined;
+  return null;
 }
