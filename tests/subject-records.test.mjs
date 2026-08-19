@@ -131,6 +131,8 @@ test("catches the newer 개인별 세특 opening phrases", () => {
     "융합수업 탐구활동에서 자료를 수합함.",
     // 문장 끝에 ` . `처럼 마침표 앞 공백이 있어도 나뉘어야 한다.
     " 학교 간 융합 논증 역량 강화 심화 탐구 프로그램에 참여하여 차세대 소재를 탐구함.",
+    // 표지 문구 없이 시작하는 진로 연계 문헌 탐구 (마침표 뒤 공백 없이 붙기도 한다)
+    "코로나19 당시 방호복을 입고 환자를 돌보는 간호사를 접하며 대응 체계를 탐구함.",
   ]) {
     const text = "영어 독해와 작문: 영시를 감상하고 협력적으로 소통함." + opener;
     const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
