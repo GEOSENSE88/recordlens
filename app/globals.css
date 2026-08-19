@@ -2010,6 +2010,19 @@ footer {
   background: var(--brand-100);
 }
 
+/* 기록별 나이스 바이트 수 */
+.byte-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.byte-note.over {
+  color: var(--danger);
+  font-weight: 800;
+}
+
 /* 같은 문장이 몇 개 기록에 돌려쓰였는지 */
 .reuse-section {
   margin: 14px 28px 0;

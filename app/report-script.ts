@@ -43,6 +43,23 @@ export const REPORT_SCRIPT = String.raw`
     return Math.round(value * 100) + "%";
   }
 
+  /* ---- 나이스 바이트 수 ---- */
+
+  var byteEncoder = typeof TextEncoder === "undefined" ? null : new TextEncoder();
+
+  /** 나이스 기준 바이트 수. 과목 기록의 "과목명: " 접두사는 저장할 때 붙인 것이라 뺀다. */
+  function neisBytes(record) {
+    var body = record.t.indexOf(record.s + ":") === 0 ? record.t.slice(record.s.length + 1).trim() : record.t;
+    if (byteEncoder) return byteEncoder.encode(body).length;
+    var bytes = 0;
+    for (var i = 0; i < body.length; i += 1) bytes += body.charCodeAt(i) > 127 ? 3 : 1;
+    return bytes;
+  }
+
+  function byteLimitOf(record) {
+    return record.s === "진로활동" ? 2100 : 1500;
+  }
+
   function riskStatus(record) {
     if (record.eg > 1 || record.sim >= 0.9995) return "exact";
     if (record.sim >= threshold) return "high";
@@ -394,7 +411,9 @@ export const REPORT_SCRIPT = String.raw`
       '<td><span class="subject-chip">' + escapeHtml(record.s) + "</span></td>" +
       '<td><strong class="similarity-number ' + status + '">' + formatPercent(record.sim) + "</strong>" +
       (record.mn ? '<span class="muted">↔ ' + escapeHtml(record.mn) + "</span>" : "") + "</td>" +
-      '<td><p class="record-preview">' + inspectionHtml(record.t, record.i) + "</p></td>" +
+      '<td><p class="record-preview">' + inspectionHtml(record.t, record.i) + "</p>" +
+      '<small class="byte-note' + (neisBytes(record) > byteLimitOf(record) + 120 ? " over" : "") + '">' +
+      neisBytes(record).toLocaleString("ko-KR") + "바이트</small></td>" +
       '<td><div class="record-issues">' + pills + "</div></td>" +
       "<td>" + detail + "</td>" +
       "</tr>";
@@ -583,7 +602,9 @@ export const REPORT_SCRIPT = String.raw`
       }
     }
 
-    html += "<footer>원본: " + escapeHtml(record.f) + " · " + record.w + "행</footer></article></section>";
+    html += "<footer>원본: " + escapeHtml(record.f) + " · " + record.w + "행 · " +
+      neisBytes(record).toLocaleString("ko-KR") + "바이트 (한도 " +
+      byteLimitOf(record).toLocaleString("ko-KR") + ")</footer></article></section>";
     return html;
   }
 

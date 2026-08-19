@@ -13,6 +13,10 @@ export type WorkbookRow = {
   name: string;
   subject: string;
   text: string;
+  /** 나이스 기준 바이트 수(과목명 접두사 제외) */
+  bytes: number;
+  /** 기록 유형별 나이스 입력 한도(바이트) */
+  byteLimit: number;
   similarity: number;
   matchText: string;
   matchName: string;
@@ -94,6 +98,7 @@ export async function buildStyledWorkbook(input: WorkbookInput): Promise<Blob> {
     { header: "이름", key: "name", width: 10 },
     { header: input.categoryLabel, key: "subject", width: 16 },
     { header: input.contentLabel, key: "text", width: 64 },
+    { header: "바이트", key: "bytes", width: 9 },
     { header: "최대 유사도", key: "similarity", width: 11 },
     { header: "일치하는 문장(가장 유사한 기록)", key: "matchText", width: 64 },
     { header: "일치 이름", key: "matchName", width: 10 },
@@ -113,6 +118,7 @@ export async function buildStyledWorkbook(input: WorkbookInput): Promise<Blob> {
       name: row.name,
       subject: row.subject,
       text: row.text,
+      bytes: row.bytes,
       similarity: row.similarity,
       matchText: row.matchText,
       matchName: row.matchName,
@@ -134,6 +140,15 @@ export async function buildStyledWorkbook(input: WorkbookInput): Promise<Blob> {
 
     const similarityCell = added.getCell("similarity");
     similarityCell.numFmt = "0%";
+
+    // 나이스 한도를 넘는 바이트 수는 붙은 기록이 있다는 뜻이라 붉게 칠한다.
+    const bytesCell = added.getCell("bytes");
+    bytesCell.numFmt = "#,##0";
+    bytesCell.alignment = { vertical: "top", horizontal: "center" };
+    if (row.bytes > row.byteLimit + 120) {
+      bytesCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: STATUS_FILL.exact.fill } };
+      bytesCell.font = { bold: true, color: { argb: STATUS_FILL.exact.font } };
+    }
 
     // 점검 결과 칸은 화면과 같은 색으로 칠해 눈에 바로 들어오게 한다.
     const status = STATUS_FILL[row.statusKey];

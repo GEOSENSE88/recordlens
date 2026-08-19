@@ -37,6 +37,7 @@ import {
   INSPECTION_LABELS,
   inspectRecordText,
   lengthOverflowIssue,
+  neisByteLength,
   type InspectionIssue,
   type InspectionIssueType,
 } from "./record-inspection";
@@ -856,6 +857,18 @@ function highlightSentences(text: string, comparisonText: string): SentenceHighl
   });
 }
 
+/** 나이스 기준 바이트 수. 과목 기록의 `과목명: ` 접두사는 우리가 붙인 것이라 뺀다. */
+function recordNeisBytes(record: CheckRecord): number {
+  const body =
+    record.recordType === "subject" ? record.text.replace(/^[^:]{1,30}:\s*/, "") : record.text;
+  return neisByteLength(body);
+}
+
+/** 기록 유형별 나이스 입력 한도(바이트). */
+function recordByteLimit(record: CheckRecord): number {
+  return record.recordType === "creative" && record.subject === "진로활동" ? 2100 : 1500;
+}
+
 /** 비교 기록과 100% 같은 문장의 수. 유사도 요약에 함께 보여 준다. */
 function exactSentenceCount(record: CheckRecord): number {
   if (!record.matchText) return 0;
@@ -1620,6 +1633,8 @@ export default function Home() {
             name: record.name,
             subject: record.subject,
             text: record.text,
+            bytes: recordNeisBytes(record),
+            byteLimit: recordByteLimit(record),
             similarity: record.similarity,
             matchText: record.matchText,
             matchName: record.matchName,
@@ -1848,6 +1863,8 @@ export default function Home() {
     .muted { display:block; margin-top:4px; overflow:hidden; color:#3b7871; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
     .subject-chip { display:inline-block; max-width:100%; overflow:hidden; padding:5px 8px; border-radius:7px; background:#fdfcf7; color:#14403b; font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
     .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#14403b; font-size:13px; line-height:1.65; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+    .byte-note { display:block; margin-top:3px; color:#3b7871; font-size:11px; }
+    .byte-note.over { color:var(--danger); font-weight:800; }
     .inspection-text-highlight { margin:0 1px; padding:1px 2px; border-radius:4px; background:#fbf1d9; color:#8f6410; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     .inspection-text-highlight.prohibited { background:#fdece6; color:#9c3822; font-weight:800; }
     .inspection-text-highlight.institution,.inspection-text-highlight.business { background:#fbf1d9; color:#8f6410; font-weight:800; }
@@ -2702,6 +2719,13 @@ export default function Home() {
                           <p className="record-preview">
                             <InspectionHighlightedText text={record.text} issues={record.issues} />
                           </p>
+                          <small
+                            className={`byte-note ${
+                              recordNeisBytes(record) > recordByteLimit(record) + 120 ? "over" : ""
+                            }`}
+                          >
+                            {recordNeisBytes(record).toLocaleString("ko-KR")}바이트
+                          </small>
                         </td>
                         <td>
                           <div className="record-issues">
@@ -3011,7 +3035,9 @@ export default function Home() {
             )}
             <div className="modal-footer">
               <span>
-                원본: {activeRecord.sourceFile} · {activeRecord.sourceRow}행
+                원본: {activeRecord.sourceFile} · {activeRecord.sourceRow}행 ·{" "}
+                {recordNeisBytes(activeRecord).toLocaleString("ko-KR")}바이트 (한도{" "}
+                {recordByteLimit(activeRecord).toLocaleString("ko-KR")})
               </span>
               <div className="modal-nav" aria-label="기록 이동">
                 <button
