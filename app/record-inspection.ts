@@ -28,8 +28,9 @@ const MAX_ISSUES_PER_TYPE = 10;
 
 const PROHIBITED_RULES: TextRule[] = [
   {
+    // 시험 목록은 현장점검 도움자료의 기재불가 공인어학시험 목록을 따른다.
     expression:
-      /\b(?:TOEIC|TOEFL|TEPS|HSK|JPT|JLPT|DELF|DALF|TESTDAF|DSH|DSD|TORFL|DELE)\b|토익|토플|텝스|공인어학시험|한자능력검정|한자자격검정/giu,
+      /\b(?:TOEIC|TOEFL|TEPS|HSK|JPT|JLPT|DELF|DALF|TESTDAF|DSH|DSD|TORFL|DELE|ZD)\b|토익|토플|텝스|공인어학시험|한자능력검정|한자자격검정|상공회의소한자|실용한자|한자급수자격검정|한자급수인증시험|YBM\s*상무\s*한검/giu,
     label: "공인어학시험",
     guidance: "공인어학시험 참여 사실, 성적 및 수상 실적은 학교생활기록부에 기재할 수 없습니다.",
     reference: "2026 기재요령 p.18",
@@ -84,12 +85,29 @@ const PROHIBITED_RULES: TextRule[] = [
     severity: "danger",
   },
   {
-    // 논문·학회지 단순 언급(문헌 조사)은 정상이지만, 등재·게재 사실은 기재할 수 없다.
-    expression: /논문\s*(?:등재|게재)|학술지\s*(?:등재|게재)/gu,
+    // 논문·학회지 단순 언급(문헌 조사)은 정상이지만, 투고·등재·발표 사실은 기재할 수 없다.
+    expression: /논문\s*(?:등재|게재|투고)|학술지\s*(?:등재|게재|투고)|학회\s*(?:에서)?\s*발표/gu,
     label: "논문 등재",
-    guidance: "논문 등재·게재 사실은 학교생활기록부에 기재할 수 없습니다.",
+    guidance: "논문 투고·등재와 학회 발표 사실은 학교생활기록부에 기재할 수 없습니다.",
     reference: "2026 기재요령 p.18 · 학교 점검 중점사항 ⑧",
     severity: "danger",
+  },
+  {
+    // 세특 입력 불가 항목: K-MOOC 등 온라인 강좌, 방과후학교, 소논문 (현장점검 11-⑦)
+    expression: /\bK[-‐]?MOOC\b|\bMOOC\b|\bKOCW\b|소\s*논문/giu,
+    label: "세특 입력 불가",
+    guidance:
+      "K-MOOC·MOOC·KOCW 와 연구보고서(소논문) 관련 사항은 세부능력 및 특기사항에 기재할 수 없습니다.",
+    reference: "2026 기재요령 p.118, p.149",
+    severity: "danger",
+  },
+  {
+    expression: /방과\s*후\s*학교/gu,
+    label: "방과후학교",
+    guidance:
+      "방과후학교 활동은 세부능력 및 특기사항과 행동특성 및 종합의견에 기재할 수 없습니다.",
+    reference: "2026 기재요령 p.118, p.159",
+    severity: "warning",
   },
   {
     expression: /장학생|장학금|장학\s*수혜/gu,
@@ -145,6 +163,14 @@ const TYPO_RULES: TextRule[] = [
     guidance:
       "작은따옴표(')나 큰따옴표(\")가 아닌 비슷한 모양의 특수기호가 입력된 것으로 보입니다. 올바른 따옴표로 바꿔 주세요.",
     reference: "문장 형식 점검",
+  },
+  {
+    // 서술형 문장은 명사형 어미(~함, ~임 등)로 끝맺는다. `~하였다.` 같은 서술형 종결을 잡는다.
+    expression: /(?:[가-힣]다|습니다|입니다|[아어여해]요)(?=\s*[.!?])/gu,
+    label: "명사형 종결",
+    guidance:
+      "서술형 항목의 문장은 명사형 어미(~함, ~임, ~됨 등)로 끝맺어야 합니다.",
+    reference: "2026 기재요령 p.30 · 현장점검 3-⑤",
   },
   {
     // 학교 점검 기준: 따옴표는 굽은따옴표(‘ ’)가 아니라 자판 곧은따옴표(')로 쓴다.

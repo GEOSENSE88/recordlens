@@ -69,6 +69,68 @@ test("keeps award wording out of unrelated compounds", () => {
   }
 });
 
+test("covers the moe field-inspection additions", () => {
+  // 공인어학시험 목록 확장 (현장점검 2-①가)
+  for (const text of ["상공회의소한자 시험을 준비함.", "한자급수인증시험에 응시함."]) {
+    assert.equal(
+      inspectRecordText(text).some((issue) => issue.label === "공인어학시험"),
+      true,
+      text + " 를 잡지 못했습니다.",
+    );
+  }
+
+  // 논문 투고·학회 발표 (2-①바)
+  assert.equal(
+    inspectRecordText("논문 투고 경험을 소개함.").some((issue) => issue.label === "논문 등재"),
+    true,
+  );
+  assert.equal(
+    inspectRecordText("학회에서 발표한 경험을 나눔.").some((issue) => issue.label === "논문 등재"),
+    true,
+  );
+  // 문헌 조사 언급은 계속 통과
+  assert.equal(
+    inspectRecordText("학회지와 논문을 참고하여 이론적 배경을 정리함.").some(
+      (issue) => issue.type === "prohibited",
+    ),
+    false,
+  );
+
+  // 세특 입력 불가: K-MOOC·소논문 (11-⑦), 방과후학교
+  assert.equal(
+    inspectRecordText("K-MOOC 강좌를 수강하고 정리함.").some(
+      (issue) => issue.label === "세특 입력 불가",
+    ),
+    true,
+  );
+  assert.equal(
+    inspectRecordText("소논문을 작성하여 완성함.").some(
+      (issue) => issue.label === "세특 입력 불가",
+    ),
+    true,
+  );
+  assert.equal(
+    inspectRecordText("방과후학교 프로그램에 참여함.").some(
+      (issue) => issue.label === "방과후학교",
+    ),
+    true,
+  );
+
+  // 명사형 종결 (3-⑤): 서술형 종결은 잡고 명사형은 통과
+  assert.equal(
+    inspectRecordText("실험 결과를 정리하여 발표하였다.").some(
+      (issue) => issue.label === "명사형 종결",
+    ),
+    true,
+  );
+  assert.equal(
+    inspectRecordText("실험 결과를 정리하여 발표함.").some(
+      (issue) => issue.label === "명사형 종결",
+    ),
+    false,
+  );
+});
+
 test("flags every use of the word 대회", () => {
   // `대회`는 어떤 맥락에서도 기재할 수 없다 (학교 점검 중점사항 ②).
   for (const text of [
