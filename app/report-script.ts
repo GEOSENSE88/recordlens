@@ -60,6 +60,11 @@ export const REPORT_SCRIPT = String.raw`
     return record.s === "진로활동" ? 2100 : 1500;
   }
 
+  function byteBadge(bytes, limit) {
+    return '<span class="byte-badge' + (bytes > limit + 120 ? " over" : "") + '">' +
+      bytes.toLocaleString("ko-KR") + "바이트</span>";
+  }
+
   function riskStatus(record) {
     if (record.eg > 1 || record.sim >= 0.9995) return "exact";
     if (record.sim >= threshold) return "high";
@@ -412,15 +417,24 @@ export const REPORT_SCRIPT = String.raw`
       '<td><strong class="similarity-number ' + status + '">' + formatPercent(record.sim) + "</strong>" +
       (record.mn ? '<span class="muted">↔ ' + escapeHtml(record.mn) + "</span>" : "") + "</td>" +
       '<td><p class="record-preview">' + inspectionHtml(record.t, record.i) + "</p>" +
-      '<small class="byte-note' + (neisBytes(record) > byteLimitOf(record) + 120 ? " over" : "") + '">' +
-      neisBytes(record).toLocaleString("ko-KR") + "바이트</small></td>" +
+      byteBadge(neisBytes(record), byteLimitOf(record)) + "</td>" +
       '<td><div class="record-issues">' + pills + "</div></td>" +
       "<td>" + detail + "</td>" +
       "</tr>";
   }
 
+  var RISK_RANK = { exact: 0, high: 1, review: 2, normal: 3 };
+
   function compare(a, b) {
-    var mode = sortSelect ? sortSelect.value : "risk";
+    var mode = sortSelect ? sortSelect.value : "priority";
+    if (mode === "priority") {
+      // 완전 일치 → 높은 유사도 → 확인 필요 → 이상 없음. 같은 등급이면
+      // 기재요령 지적이 많은 기록, 그다음 유사도가 높은 기록부터.
+      return (RISK_RANK[a.status] - RISK_RANK[b.status]) ||
+        (b.i.length - a.i.length) ||
+        (b.sim - a.sim) ||
+        a.n.localeCompare(b.n, "ko");
+    }
     if (mode === "class") {
       return a.c.localeCompare(b.c, "ko", { numeric: true }) ||
         ((Number(a.no) || 0) - (Number(b.no) || 0)) ||
@@ -465,6 +479,9 @@ export const REPORT_SCRIPT = String.raw`
         : "조건에 맞는 기록 없음";
     }
     if (emptyNote) emptyNote.hidden = matched.length > 0;
+    // 표 위 필터가 바뀌면 담당 카드의 선택도 맞춘다.
+    if (ownerClass && classSelect) ownerClass.value = classSelect.value;
+    if (ownerSubject && subjectSelect) ownerSubject.value = subjectSelect.value;
     if (prevButton) prevButton.disabled = page <= 1;
     if (nextButton) nextButton.disabled = page >= pages;
     if (progressLabel) {
@@ -476,6 +493,30 @@ export const REPORT_SCRIPT = String.raw`
   }
 
   function reset() { page = 1; apply(); }
+
+  /* 담당 빠른 선택 카드: 표 위 필터와 같은 상태를 공유한다. */
+  var ownerClass = document.getElementById("op-class");
+  var ownerSubject = document.getElementById("op-subject");
+  var ownerReset = document.getElementById("op-reset");
+  if (ownerClass) {
+    ownerClass.addEventListener("change", function () {
+      if (classSelect) classSelect.value = ownerClass.value;
+      reset();
+    });
+  }
+  if (ownerSubject) {
+    ownerSubject.addEventListener("change", function () {
+      if (subjectSelect) subjectSelect.value = ownerSubject.value;
+      reset();
+    });
+  }
+  if (ownerReset) {
+    ownerReset.addEventListener("click", function () {
+      if (classSelect) classSelect.value = "all";
+      if (subjectSelect) subjectSelect.value = "all";
+      reset();
+    });
+  }
 
   if (searchInput) searchInput.addEventListener("input", reset);
   if (classSelect) classSelect.addEventListener("change", reset);
@@ -559,7 +600,8 @@ export const REPORT_SCRIPT = String.raw`
       '<article class="dialog-sheet"><header class="dialog-header"><div>' +
       '<span class="status-badge ' + status + '"><i></i>' + RISK_LABELS[status] + "</span>" +
       "<h2>" + escapeHtml(record.n) + " · " + escapeHtml(record.s) + "</h2>" +
-      '<small class="dialog-sub">' + escapeHtml(record.c) + "</small></div>" +
+      '<small class="dialog-sub">' + escapeHtml(record.c) +
+      (record.no ? " " + escapeHtml(String(record.no)) + "번" : "") + " · 기록 종합점검</small></div>" +
       '<a class="dialog-close" href="#results" data-close="1" aria-label="상세 창 닫기">×</a></header>';
 
     if (issueItems) {
@@ -571,14 +613,16 @@ export const REPORT_SCRIPT = String.raw`
     }
 
     var reused = reusedSentencesOf(record);
-    if (reused.length) {
-      html += '<section class="reuse-section"><div><strong>재사용된 문장</strong>' +
+    var reusedHtml = reused.length
+      ? '<section class="reuse-section"><div><strong>재사용된 문장</strong>' +
         "<small>이 기록의 문장이 전체 저장본에서 몇 개의 기록에 그대로 나오는지입니다.</small></div><ul>" +
         reused.map(function (sentence) {
           return "<li><span>" + escapeHtml(sentence.text) + "</span><b>" + sentence.count + "개 기록</b></li>";
         }).join("") +
-        "</ul></section>";
-    }
+        "</ul></section>"
+      : "";
+    // 비교 대상이 없으면 여기, 있으면 공통 단어 목록 바로 위에 넣는다.
+    if (!(record.m >= 0)) html += reusedHtml;
 
     if (other) {
       var keywords = sharedKeywords(record);
@@ -589,11 +633,14 @@ export const REPORT_SCRIPT = String.raw`
         '<span><i class="similar"></i>문장 내 다른 부분</span>' +
         "<small>문장에 마우스를 올리면 양쪽의 같은 문장이 함께 표시됩니다.</small></div>" +
         '<div class="comparison-grid" data-pair-scope="1"><section><h3>A · ' + escapeHtml(record.n) + "</h3>" +
-        "<small>" + escapeHtml(record.c) + " · " + escapeHtml(record.s) + "</small><p>" +
+        "<small>" + escapeHtml(record.c) + " · " + escapeHtml(record.s) + " " +
+        byteBadge(neisBytes(record), byteLimitOf(record)) + "</small><p>" +
         comparisonHtml(record.t, other.t, true) + "</p></section>" +
         "<section><h3>B · " + escapeHtml(record.mn || "비교 대상") + "</h3>" +
-        "<small>가장 유사한 다른 기록</small><p>" +
+        "<small>가장 유사한 다른 기록 " + byteBadge(neisBytes(other), byteLimitOf(other)) + "</small><p>" +
         comparisonHtml(other.t, record.t, false) + "</p></section></div>";
+
+      html += reusedHtml;
 
       if (keywords.length) {
         html += '<div class="keywords"><span>두 문장에 함께 나온 주요 단어</span>' +
@@ -602,8 +649,8 @@ export const REPORT_SCRIPT = String.raw`
       }
     }
 
-    html += "<footer>원본: " + escapeHtml(record.f) + " · " + record.w + "행 · " +
-      neisBytes(record).toLocaleString("ko-KR") + "바이트 (한도 " +
+    html += "<footer>원본: " + escapeHtml(record.f) + " · " + record.w + "행 " +
+      byteBadge(neisBytes(record), byteLimitOf(record)) + " (한도 " +
       byteLimitOf(record).toLocaleString("ko-KR") + ")</footer></article></section>";
     return html;
   }

@@ -2010,17 +2010,113 @@ footer {
   background: var(--brand-100);
 }
 
-/* 기록별 나이스 바이트 수 */
-.byte-note {
-  display: block;
-  margin-top: 3px;
+/* 상세 창 머리의 인적정보 줄 */
+.modal-identity {
+  margin: 3px 0 0;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.byte-note.over {
-  color: var(--danger);
+/* 선생님이 본인 담당을 골라 보는 카드 */
+.owner-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 14px 24px;
+  margin-top: 18px;
+  padding: 21px 25px;
+  border: 1px solid var(--brand-100);
+  border-radius: 17px;
+  background: linear-gradient(135deg, var(--brand-25), #ffffff 70%);
+}
+
+.owner-picker > div:first-child {
+  flex-shrink: 0;
+}
+
+.owner-picker span {
+  color: var(--brand-800);
+  font-size: 12px;
   font-weight: 800;
+}
+
+.owner-picker h2 {
+  margin: 4px 0 0;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.owner-picker p {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.owner-picker-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.owner-picker-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--brand-900);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.owner-picker-controls select {
+  min-width: 170px;
+  height: 42px;
+  padding: 0 11px;
+  border: 1px solid var(--brand-200);
+  border-radius: 11px;
+  background: white;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.owner-picker-controls button {
+  height: 42px;
+  padding: 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: white;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.owner-picker-controls button:hover {
+  border-color: var(--brand-500);
+  color: var(--brand-800);
+}
+
+/* 기록별 나이스 바이트 수 뱃지 */
+.byte-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--brand-100);
+  border-radius: 999px;
+  background: var(--brand-25);
+  color: var(--brand-900);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.byte-badge.over {
+  border-color: #f3c4b4;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* 같은 문장이 몇 개 기록에 돌려쓰였는지 */

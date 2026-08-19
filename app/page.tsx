@@ -43,7 +43,10 @@ import {
 } from "./record-inspection";
 
 type RiskStatus = "exact" | "high" | "review" | "normal";
-type SortMode = "risk" | "class" | "name" | "subject";
+type SortMode = "priority" | "risk" | "class" | "name" | "subject";
+
+/** 확인 우선순위 정렬용 등급. 낮을수록 먼저 보여 준다. */
+const RISK_RANK: Record<RiskStatus, number> = { exact: 0, high: 1, review: 2, normal: 3 };
 type RecordType = "subject" | "creative";
 
 type SourceRow = {
@@ -898,6 +901,42 @@ function buildSentenceReuseCounts(records: CheckRecord[]): Map<string, number> {
 
 type ReusedSentence = { text: string; count: number };
 
+/** 나이스 바이트 수 뱃지. 한도를 넘으면 붉게 표시한다. */
+function ByteBadge({ bytes, limit }: { bytes: number; limit: number }) {
+  return (
+    <span className={`byte-badge ${bytes > limit + 120 ? "over" : ""}`}>
+      {bytes.toLocaleString("ko-KR")}바이트
+    </span>
+  );
+}
+
+function ReuseSection({
+  record,
+  counts,
+}: {
+  record: CheckRecord;
+  counts: Map<string, number>;
+}) {
+  const reused = reusedSentencesOf(record, counts);
+  if (!reused.length) return null;
+  return (
+    <section className="reuse-section">
+      <div>
+        <strong>재사용된 문장</strong>
+        <small>이 기록의 문장이 전체 업로드에서 몇 개의 기록에 그대로 나오는지입니다.</small>
+      </div>
+      <ul>
+        {reused.map((sentence) => (
+          <li key={sentence.text}>
+            <span>{sentence.text}</span>
+            <b>{sentence.count}개 기록</b>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** 이 기록의 문장 중 다른 기록에도 그대로 나온 것들. 많이 쓰인 순서로 최대 8개. */
 function reusedSentencesOf(
   record: CheckRecord,
@@ -1155,7 +1194,8 @@ export default function Home() {
   /** 학급별·과목(활동 영역)별로 골라 보는 필터. "all"은 전체. */
   const [classFilter, setClassFilter] = useState("all");
   const [subjectFilter, setSubjectFilter] = useState("all");
-  const [sortMode, setSortMode] = useState<SortMode>("risk");
+  // 기본 정렬은 확인 우선순위: 담당 과목·학급을 고른 선생님이 봐야 할 기록부터 나온다.
+  const [sortMode, setSortMode] = useState<SortMode>("priority");
   const [page, setPage] = useState(1);
   const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
   const [reportTime, setReportTime] = useState("");
@@ -1310,6 +1350,16 @@ export default function Home() {
     });
 
     return filtered.sort((a, b) => {
+      if (sortMode === "priority") {
+        // 완전 일치 → 높은 유사도 → 확인 필요 → 이상 없음. 같은 등급이면
+        // 기재요령 지적이 많은 기록, 그다음 유사도가 높은 기록부터.
+        return (
+          RISK_RANK[riskStatus(a, threshold)] - RISK_RANK[riskStatus(b, threshold)] ||
+          b.issues.length - a.issues.length ||
+          b.similarity - a.similarity ||
+          a.name.localeCompare(b.name, "ko")
+        );
+      }
       if (sortMode === "class") {
         // 담당자는 반 순서대로 훑는다. 학급 → 번호 → 과목 순.
         return (
@@ -1829,6 +1879,15 @@ export default function Home() {
     .audit-item:hover, .audit-item.active { border-color:#a8ded6; background:#fdfcf7; color:var(--brand-800); }
     .audit-disclaimer { margin:14px 0 0; color:#3b7871; font-size:13px; }
     .results-panel { margin-top:16px; overflow:hidden; }
+    .owner-picker { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:14px 24px; margin:0 25px; padding:19px 21px; border:1px solid var(--brand-100,#c9e8e0); border-radius:15px; background:linear-gradient(135deg,#eff8f4,#ffffff 70%); }
+    .owner-picker > div:first-child { flex-shrink:0; }
+    .owner-picker span { color:var(--brand-800); font-size:12px; font-weight:800; }
+    .owner-picker h2 { margin:4px 0 0; font-size:18px; letter-spacing:-.03em; }
+    .owner-picker p { margin:5px 0 0; color:#3b7871; font-size:13px; }
+    .owner-picker-controls { display:flex; align-items:flex-end; flex-wrap:wrap; gap:10px; }
+    .owner-picker-controls label { display:flex; flex-direction:column; gap:5px; color:#14403b; font-size:12px; font-weight:700; }
+    .owner-picker-controls select { min-width:170px; height:42px; padding:0 11px; border:1px solid #a8ded6; border-radius:11px; background:white; color:#12312e; font-size:14px; font-weight:700; }
+    .owner-picker-controls button { height:42px; padding:0 15px; border:1px solid var(--line); border-radius:11px; background:white; color:#3b7871; font-size:13px; font-weight:700; cursor:pointer; }
     /* 컨트롤이 한 줄에 다 못 들어가면 제목을 누르지 말고 다음 줄로 흘린다.
        제목이 눌리면 한 글자씩 세로로 꺾여 보인다. */
     .results-heading { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:14px 18px; padding:23px 25px; border-bottom:1px solid var(--line); }
@@ -1863,8 +1922,8 @@ export default function Home() {
     .muted { display:block; margin-top:4px; overflow:hidden; color:#3b7871; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
     .subject-chip { display:inline-block; max-width:100%; overflow:hidden; padding:5px 8px; border-radius:7px; background:#fdfcf7; color:#14403b; font-size:12px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
     .record-preview { display:-webkit-box; margin:0; overflow:hidden; color:#14403b; font-size:13px; line-height:1.65; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
-    .byte-note { display:block; margin-top:3px; color:#3b7871; font-size:11px; }
-    .byte-note.over { color:var(--danger); font-weight:800; }
+    .byte-badge { display:inline-block; margin-top:4px; padding:2px 9px; border:1px solid #c9e8e0; border-radius:999px; background:#eff8f4; color:#14403b; font-size:11px; font-weight:800; white-space:nowrap; }
+    .byte-badge.over { border-color:#f3c4b4; background:#fdece6; color:var(--danger); }
     .inspection-text-highlight { margin:0 1px; padding:1px 2px; border-radius:4px; background:#fbf1d9; color:#8f6410; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
     .inspection-text-highlight.prohibited { background:#fdece6; color:#9c3822; font-weight:800; }
     .inspection-text-highlight.institution,.inspection-text-highlight.business { background:#fbf1d9; color:#8f6410; font-weight:800; }
@@ -1996,6 +2055,34 @@ export default function Home() {
       <p class="audit-disclaimer">자동 탐지는 확인이 필요한 후보를 찾는 기능입니다. 문맥, 허용 예외, 고유명사 여부는 기재요령 원문과 대조하여 최종 판단해 주세요.</p>
     </section>
     <section class="results-panel" id="results">
+      <div class="owner-picker" aria-label="담당 선택">
+        <div>
+          <span>담당 확인</span>
+          <h2>내 담당부터 확인하기</h2>
+          <p>담당 학급이나 ${escapeHtml(categoryLabel)}을 고르면 그 기록만 모아, 확인이 필요한 것부터 보여 드립니다.</p>
+        </div>
+        <div class="owner-picker-controls">
+          <label>담당 학급
+            <select id="op-class">
+              <option value="all">전체 학급</option>
+              ${[...new Set(orderedRecords.map((record) => record.className))]
+                .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }))
+                .map((className) => `<option value="${escapeHtml(className)}">${escapeHtml(className)}</option>`)
+                .join("")}
+            </select>
+          </label>
+          <label>담당 ${escapeHtml(categoryLabel)}
+            <select id="op-subject">
+              <option value="all">전체 ${escapeHtml(categoryLabel)}</option>
+              ${[...new Set(orderedRecords.map((record) => record.subject))]
+                .sort((a, b) => a.localeCompare(b, "ko"))
+                .map((subject) => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`)
+                .join("")}
+            </select>
+          </label>
+          <button type="button" id="op-reset">전체 보기</button>
+        </div>
+      </div>
       <div class="results-heading">
         <div><span class="section-kicker">상세 점검 결과</span><h2>기록별 비교 <em id="visible-count">${orderedRecords.length.toLocaleString("ko-KR")}</em></h2></div>
         <div class="snapshot-controls">
@@ -2028,6 +2115,7 @@ export default function Home() {
             ).join("")}
           </select>
           <select id="report-sort" class="snapshot-select" aria-label="정렬 방법">
+            <option value="priority">확인 우선순위 순</option>
             <option value="risk">유사도 높은 순</option>
             <option value="class">학급·번호 순</option>
             <option value="name">이름 순</option>
@@ -2559,6 +2647,58 @@ export default function Home() {
             )}
           </section>
 
+          <section className="owner-picker" aria-label="담당 선택">
+            <div>
+              <span>담당 확인</span>
+              <h2>내 담당부터 확인하기</h2>
+              <p>
+                담당 학급이나 {categoryLabel}을 고르면 그 기록만 모아, 확인이 필요한 것부터
+                보여 드립니다.
+              </p>
+            </div>
+            <div className="owner-picker-controls">
+              <label>
+                담당 학급
+                <select
+                  value={classFilter}
+                  onChange={(event) => changeClassFilter(event.target.value)}
+                >
+                  <option value="all">전체 학급</option>
+                  {classOptions.map((className) => (
+                    <option value={className} key={className}>
+                      {className}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                담당 {categoryLabel}
+                <select
+                  value={subjectFilter}
+                  onChange={(event) => changeSubjectFilter(event.target.value)}
+                >
+                  <option value="all">전체 {categoryLabel}</option>
+                  {subjectOptions.map((subject) => (
+                    <option value={subject} key={subject}>
+                      {subject}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {(classFilter !== "all" || subjectFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    changeClassFilter("all");
+                    changeSubjectFilter("all");
+                  }}
+                >
+                  전체 보기
+                </button>
+              )}
+            </div>
+          </section>
+
           <section className="results-panel" id="results">
             <div className="results-heading">
               <div>
@@ -2643,6 +2783,7 @@ export default function Home() {
                   onChange={(event) => changeSortMode(event.target.value as SortMode)}
                   aria-label="정렬 방법"
                 >
+                  <option value="priority">확인 우선순위 순</option>
                   <option value="risk">유사도 높은 순</option>
                   <option value="class">학급·번호 순</option>
                   <option value="name">이름 순</option>
@@ -2719,13 +2860,10 @@ export default function Home() {
                           <p className="record-preview">
                             <InspectionHighlightedText text={record.text} issues={record.issues} />
                           </p>
-                          <small
-                            className={`byte-note ${
-                              recordNeisBytes(record) > recordByteLimit(record) + 120 ? "over" : ""
-                            }`}
-                          >
-                            {recordNeisBytes(record).toLocaleString("ko-KR")}바이트
-                          </small>
+                          <ByteBadge
+                            bytes={recordNeisBytes(record)}
+                            limit={recordByteLimit(record)}
+                          />
                         </td>
                         <td>
                           <div className="record-issues">
@@ -2866,7 +3004,13 @@ export default function Home() {
                   <i />
                   {riskLabel(riskStatus(activeRecord, threshold))}
                 </span>
-                <h2 id="compare-title">기록 종합점검</h2>
+                <h2 id="compare-title">
+                  {activeRecord.name} · {activeRecord.subject}
+                </h2>
+                <p className="modal-identity">
+                  {activeRecord.className}
+                  {activeRecord.number ? ` ${activeRecord.number}번` : ""} · 기록 종합점검
+                </p>
               </div>
               <button type="button" onClick={() => setSelectedRecord(null)} aria-label="상세 창 닫기">
                 <X size={20} />
@@ -2939,28 +3083,9 @@ export default function Home() {
                 </ul>
               </section>
             )}
-            {(() => {
-              const reused = reusedSentencesOf(activeRecord, sentenceReuseCounts);
-              if (!reused.length) return null;
-              return (
-                <section className="reuse-section">
-                  <div>
-                    <strong>재사용된 문장</strong>
-                    <small>
-                      이 기록의 문장이 전체 업로드에서 몇 개의 기록에 그대로 나오는지입니다.
-                    </small>
-                  </div>
-                  <ul>
-                    {reused.map((sentence) => (
-                      <li key={sentence.text}>
-                        <span>{sentence.text}</span>
-                        <b>{sentence.count}개 기록</b>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })()}
+            {!activeRecord.matchText && (
+              <ReuseSection record={activeRecord} counts={sentenceReuseCounts} />
+            )}
             {activeRecord.matchText && (
               <>
                 <div className="similarity-callout">
@@ -2991,7 +3116,11 @@ export default function Home() {
                       <div>
                         <strong>{activeRecord.name}</strong>
                         <small>
-                          {activeRecord.className} · {activeRecord.subject}
+                          {activeRecord.className} · {activeRecord.subject}{" "}
+                          <ByteBadge
+                            bytes={recordNeisBytes(activeRecord)}
+                            limit={recordByteLimit(activeRecord)}
+                          />
                         </small>
                       </div>
                     </div>
@@ -3006,7 +3135,15 @@ export default function Home() {
                       <span>B</span>
                       <div>
                         <strong>{activeRecord.matchName || "비교 대상"}</strong>
-                        <small>가장 유사한 다른 기록</small>
+                        <small>
+                          가장 유사한 다른 기록{" "}
+                          <ByteBadge
+                            bytes={neisByteLength(
+                              activeRecord.matchText.replace(/^[^:]{1,30}:\s*/, ""),
+                            )}
+                            limit={recordByteLimit(activeRecord)}
+                          />
+                        </small>
                       </div>
                     </div>
                     <HighlightedComparisonText
@@ -3016,6 +3153,7 @@ export default function Home() {
                     />
                   </article>
                 </div>
+                <ReuseSection record={activeRecord} counts={sentenceReuseCounts} />
                 <div className="keyword-section">
                   <span>두 기록의 공통 단어 목록</span>
                   <div>
@@ -3035,9 +3173,12 @@ export default function Home() {
             )}
             <div className="modal-footer">
               <span>
-                원본: {activeRecord.sourceFile} · {activeRecord.sourceRow}행 ·{" "}
-                {recordNeisBytes(activeRecord).toLocaleString("ko-KR")}바이트 (한도{" "}
-                {recordByteLimit(activeRecord).toLocaleString("ko-KR")})
+                원본: {activeRecord.sourceFile} · {activeRecord.sourceRow}행{" "}
+                <ByteBadge
+                  bytes={recordNeisBytes(activeRecord)}
+                  limit={recordByteLimit(activeRecord)}
+                />{" "}
+                (한도 {recordByteLimit(activeRecord).toLocaleString("ko-KR")})
               </span>
               <div className="modal-nav" aria-label="기록 이동">
                 <button
