@@ -867,9 +867,10 @@ function recordNeisBytes(record: CheckRecord): number {
   return neisByteLength(body);
 }
 
-/** 기록 유형별 나이스 입력 한도(바이트). */
+/** 나이스 입력 한도(바이트). 2026학년도부터 진로활동도 1,500바이트로 통일됐다. */
 function recordByteLimit(record: CheckRecord): number {
-  return record.recordType === "creative" && record.subject === "진로활동" ? 2100 : 1500;
+  void record;
+  return 1500;
 }
 
 /** 비교 기록과 100% 같은 문장의 수. 유사도 요약에 함께 보여 준다. */
@@ -1481,9 +1482,7 @@ export default function Home() {
         record.recordType === "subject"
           ? record.text.replace(/^[^:]{1,30}:\s*/, "")
           : record.text;
-      const limit =
-        record.recordType === "creative" && record.subject === "진로활동" ? 2100 : 1500;
-      const overflow = lengthOverflowIssue(body, limit);
+      const overflow = lengthOverflowIssue(body, recordByteLimit(record));
       if (overflow) {
         // 본문 위치를 원문(record.text) 기준으로 되돌린다.
         const offset = record.text.length - body.length;

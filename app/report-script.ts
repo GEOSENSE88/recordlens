@@ -57,7 +57,9 @@ export const REPORT_SCRIPT = String.raw`
   }
 
   function byteLimitOf(record) {
-    return record.s === "진로활동" ? 2100 : 1500;
+    // 2026학년도부터 진로활동도 1,500바이트로 통일됐다.
+    void record;
+    return 1500;
   }
 
   function byteBadge(bytes, limit) {
