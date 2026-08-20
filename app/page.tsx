@@ -306,6 +306,131 @@ function preprocessRows(rows: unknown[][], sourceFile: string): SourceRow[] {
   return prepared;
 }
 
+/**
+ * 나이스 `과목별(항목별 조회)` 다운로드 양식: `과목|학년|학기|번호|성명|세특` 열 구성.
+ * 학급은 열에 없고 쪽 제목(`3학년 8반`)에 있다. 반별 양식(`번호|성명|학년|세특`)과
+ * 머리글이 달라 따로 알아본다.
+ */
+function isSubjectWiseExport(rows: unknown[][]) {
+  return rows.some((_, rowIndex) => {
+    const values = rowCells(rows, rowIndex, 6).map(normalizeHeader);
+    return (
+      values[0].includes("과목") &&
+      values[1].includes("학년") &&
+      (values[2].includes("학기") || values[2].includes("학급")) &&
+      values[3].includes("번호") &&
+      values[4].includes("성명") &&
+      values[5].includes(normalizeHeader(HEADER_TEXT))
+    );
+  });
+}
+
+function parseSubjectWiseRows(rows: unknown[][], sourceFile: string): CheckRecord[] {
+  const records = new Map<
+    string,
+    {
+      className: string;
+      grade: string;
+      subject: string;
+      name: string;
+      number: string;
+      text: string;
+      sourceRow: number;
+    }
+  >();
+
+  let currentSubject = "";
+  let currentGrade = "";
+  let currentClass = "";
+  let currentNumber = "";
+  let currentName = "";
+
+  rows.forEach((_, rowIndex) => {
+    const row = rowCells(rows, rowIndex, 12);
+
+    // 학급은 열에 없고 쪽 제목(`3학년 8반`)에만 있다.
+    const firstCell = cleanVisibleText(row[0]);
+    if (/^\d+\s*학년\s*\d+\s*반/.test(firstCell)) {
+      currentClass = classLabel(firstCell);
+      return;
+    }
+
+    const detail = cleanVisibleText(row[5]);
+    // 머리글·바닥글(쪽번호)은 특기사항 칸이 비거나 머리글 문구라서 여기서 걸러진다.
+    if (!detail || detail.includes(HEADER_TEXT)) return;
+
+    // `계` 행은 과목이 아니라 합계 표시다.
+    if (firstCell && firstCell !== "계") currentSubject = firstCell;
+    const gradeValue = cleanVisibleText(row[1]);
+    if (/^[1-3]$/.test(gradeValue)) currentGrade = `${gradeValue}학년`;
+    // row[2]는 학기라서 기록 구분에 쓰지 않는다. 같은 과목의 1·2학기 세특은
+    // 반별 양식과 마찬가지로 한 기록으로 이어 붙는다.
+    const numberValue = cleanVisibleText(row[3]);
+    if (/^\d{1,3}$/.test(numberValue)) currentNumber = numberValue;
+    const nameValue = cleanVisibleText(row[4]);
+    if (nameValue) currentName = nameValue;
+
+    if (!currentSubject || currentSubject === "계" || !currentName) return;
+    const key = [currentSubject, currentGrade, currentClass, currentNumber, currentName].join("|");
+    const existing = records.get(key);
+    if (existing) {
+      // 쪽이 바뀌면 같은 학생 행이 나머지 내용과 함께 다시 온다. 공백 차이를 무시하고
+      // 같은 내용이면 이어 붙이지 않는다.
+      const spaceless = (value: string) => value.replace(/\s+/g, "");
+      if (!spaceless(existing.text).includes(spaceless(detail))) {
+        existing.text = `${existing.text} ${detail}`.trim();
+      }
+    } else {
+      records.set(key, {
+        className: currentClass || "학급 미상",
+        grade: currentGrade || "학년 미상",
+        subject: currentSubject,
+        name: currentName,
+        number: currentNumber,
+        text: detail,
+        sourceRow: rowIndex + 1,
+      });
+    }
+  });
+
+  return [...records.values()]
+    .filter((record) => record.text.length > 3)
+    .map((record, index) => {
+      const text = `${record.subject}: ${record.text}`;
+      const normalizedText = normalizeText(text);
+      return {
+        id: `subjectwise-${index}-${record.sourceRow}`,
+        className: record.className,
+        grade: record.grade,
+        subject: record.subject,
+        number: record.number,
+        name: record.name,
+        text,
+        sourceFile,
+        sourceRow: record.sourceRow,
+        rawCells: [
+          record.className,
+          record.number,
+          record.grade,
+          "",
+          record.subject,
+          record.name,
+          text,
+        ],
+        normalizedText,
+        tokens: [...new Set(normalizedText.split(" ").filter(Boolean))],
+        similarity: 0,
+        matchId: null,
+        matchName: "",
+        matchText: "",
+        exactGroupSize: 1,
+        recordType: "subject" as const,
+        issues: inspectRecordText(text),
+        checkKey: "",
+      };
+    });
+}
+
 function isNeisExport(rows: unknown[][]) {
   return rows.some((_, rowIndex) => {
     const values = rowCells(rows, rowIndex, 4);
@@ -1654,6 +1779,8 @@ export default function Home() {
         }) as unknown[][];
         if (isCreativeActivityExport(rows)) {
           parsedRecords.push(...makeCreativeCheckRecords(rows, file.name));
+        } else if (isSubjectWiseExport(rows)) {
+          parsedRecords.push(...parseSubjectWiseRows(rows, file.name));
         } else if (isNeisExport(rows)) {
           parsedRecords.push(...parseNeisRows(rows, file.name));
         } else {
