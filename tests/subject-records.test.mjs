@@ -143,6 +143,41 @@ test("cuts an oversized segment at the sentence that carries a mid-sentence mark
   assert.deepEqual(shortSplit.segments.map((segment) => segment.subject), ["영어 독해와 작문"]);
 });
 
+test("cuts an oversized segment at an unlisted subject name", () => {
+  // 목록에 없는 소인수 과목(프로그래밍(PYTHON))이 붙은 경우: 한도를 넘으면
+  // 문장 시작의 `이름:` 패턴에서 자르고 그 이름을 과목으로 쓴다.
+  const filler = "지문의 구조를 분석하고 협력적으로 소통함. ".repeat(30);
+  const text =
+    "정보: " + filler + "프로그래밍(PYTHON): 문자 인식 프로그램을 구현하고 조건문을 탐구하여 적용함.";
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["정보", "프로그래밍(PYTHON)"],
+  );
+  assert.equal(segments[1].body.startsWith("문자 인식"), true);
+
+  // 개요식 콜론 머리말(주제:)은 과목으로 보지 않는다.
+  const prose = "정보: " + filler + "탐구 주제: 알고리즘의 사회적 영향. 결론을 정리함.";
+  const proseSplit = splitSubjectSegments(prose, subjectNamesFromTexts([prose]));
+  assert.equal(
+    proseSplit.segments.some((segment) => segment.subject.includes("주제")),
+    false,
+  );
+});
+
+test("cuts an oversized segment at the neis join mark when no marker exists", () => {
+  // 표지도 과목명도 없을 때는 ` . `(마침표 앞 공백) 이음매에서 자른다.
+  const first = "사회 현상을 자료로 분석하고 근거를 들어 설명함. ".repeat(28).trim();
+  const second = "트랜스포머 기반 번역의 원리를 탐구하고 역번역으로 의미 일치도를 확인함.";
+  const text = "정보: " + first + " . " + second;
+  const { segments } = splitSubjectSegments(text, subjectNamesFromTexts([text]));
+  assert.deepEqual(
+    segments.map((segment) => segment.subject),
+    ["정보", "개인별 세특"],
+  );
+  assert.equal(segments[1].body.startsWith("트랜스포머"), true);
+});
+
 test("splits two personal-record programs that were merged into one block", () => {
   // 개인세특 두 개(코로나19 탐구 + 배움너머 탐구)가 한 덩어리로 붙은 경우:
   // 한도를 넘을 때만 두 번째 표지에서 다시 자른다.

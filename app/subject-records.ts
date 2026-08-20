@@ -121,9 +121,12 @@ export const KNOWN_SUBJECTS = new Set([
   "데이터과학과 머신러닝",
 ]);
 
-/** 마침표 뒤 공백은 있어도 없어도 되고, 과목명에는 유니코드 로마숫자를 허용한다. */
+/**
+ * 마침표 뒤 공백은 있어도 없어도 되고, 과목명에는 유니코드 로마숫자와
+ * 괄호(`프로그래밍(PYTHON)`, 공동교육과정 표기)를 허용한다.
+ */
 const SUBJECT_CANDIDATE_EXPRESSION =
-  /(?:^|[.!?]\s*|\([12]학기\)\s*)([가-힣A-Za-zⅠ-Ⅻ][가-힣A-Za-zⅠ-Ⅻ0-9· ]{0,24}?):\s*/gu;
+  /(?:^|[.!?]\s*|\([12]학기\)\s*)([가-힣A-Za-zⅠ-Ⅻ][가-힣A-Za-zⅠ-Ⅻ0-9·() ]{0,24}?):\s*/gu;
 
 function collapse(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -133,6 +136,10 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** 개요식 서술에 흔한 콜론 머리말. 과목명이 아니다. */
+const PROSE_COLON_HEADS =
+  /(?:주제|질문|논제|가설|예시|예|결론|참고|출처|목표|방법|결과|소감|내용|계획|순서|기준|다음|아래|비고)$/;
+
 /** 본문 조각이 과목명으로 잘못 잡히는 것을 막는다. */
 export function isSubjectCandidate(value: string) {
   if (!value) return false;
@@ -141,6 +148,11 @@ export function isSubjectCandidate(value: string) {
   // `배드민턴 개인 리그전 1:` 같은 문장 조각을 걸러낸다.
   if (/\s\d+$/.test(value)) return false;
   if (value.endsWith("에서")) return false;
+  if (PROSE_COLON_HEADS.test(value.replace(/\s+/g, ""))) return false;
+  // 괄호가 있다면 짝이 맞아야 한다.
+  const opens = (value.match(/\(/g) ?? []).length;
+  const closes = (value.match(/\)/g) ?? []).length;
+  if (opens !== closes) return false;
   return true;
 }
 
@@ -317,16 +329,16 @@ export function splitSubjectSegments(
 function splitOversizedSegments(segments: SubjectSegment[]): SubjectSegment[] {
   const refined: SubjectSegment[] = [];
   for (const segment of segments) {
-    // 개인세특이 여러 개 붙은 경우도 있어(칸트 탐구 + 배움너머 탐구), 잘라낸 뒤쪽도
+    // 여러 개가 붙은 경우도 있어(과목 + 개인세특 + 다른 과목), 잘라낸 뒤쪽도
     // 다시 검사한다. 한도 이내가 되면 멈춘다.
     let current = segment;
     let guard = 0;
-    while (guard < 6 && byteEncoder.encode(current.body).length > SEGMENT_BYTE_LIMIT) {
+    while (guard < 8 && byteEncoder.encode(current.body).length > SEGMENT_BYTE_LIMIT) {
       guard += 1;
-      const cut = findPersonalCut(current.body);
-      if (cut === null) break;
-      refined.push({ subject: current.subject, body: current.body.slice(0, cut) });
-      current = { subject: PERSONAL_RECORD_SUBJECT, body: current.body.slice(cut) };
+      const found = findOversizedCut(current.body);
+      if (!found) break;
+      refined.push({ subject: current.subject, body: current.body.slice(0, found.cut).trim() });
+      current = { subject: found.subject, body: current.body.slice(found.bodyStart) };
     }
     refined.push(current);
   }
@@ -342,29 +354,95 @@ export function splitOversizedRecord(subject: string, body: string): SubjectSegm
   return splitOversizedSegments([{ subject, body }]);
 }
 
-/** 한도를 넘은 조각 안에서 개인세특이 시작하는 자리를 찾는다. 없으면 null. */
-function findPersonalCut(body: string): number | null {
-  // 1) 문장 시작에 선 표지. 맨 앞 표지는 이 조각 자신의 시작이므로 건너뛴다.
+type OversizedCut = {
+  /** 앞 조각이 끝나는 위치 */
+  cut: number;
+  /** 뒤 조각의 본문이 시작하는 위치 (과목명·콜론은 건너뛴다) */
+  bodyStart: number;
+  /** 뒤 조각에 붙일 이름 */
+  subject: string;
+};
+
+/**
+ * 한도를 넘은 조각 안에서 잘라낼 자리를 찾는다. 없으면 null.
+ * 세 가지 신호를 보고, 가장 앞에 있는 것을 쓴다.
+ *  1) 문장 시작의 `과목명:` — 목록에 없는 소인수·공동교육과정 과목도 여기서 잡힌다.
+ *  2) 개인세특 표지 — 문장 시작이든 문장 중간이든.
+ *  3) ` . `(마침표 앞 공백) 이음매 — 나이스가 항목을 이어 붙일 때 남는 흔적이라,
+ *     한도를 넘은 조각에서는 병합 지점일 가능성이 높다.
+ */
+function findOversizedCut(body: string): OversizedCut | null {
+  const candidates: OversizedCut[] = [];
+
+  // 1) 문장 시작의 `이름:` — 목록에 없어도 과목으로 인정한다.
+  const relaxed =
+    /(?:^|[.!?]\s*)([가-힣A-Za-z][가-힣A-Za-zⅠ-Ⅻ0-9·() ]{1,24}?)\s*:\s*/gu;
+  for (const match of body.matchAll(relaxed)) {
+    const nameStart = (match.index ?? 0) + match[0].indexOf(match[1]);
+    if (nameStart <= 0) continue;
+    const name = collapse(match[1]);
+    if (name.length < 2 || !isSubjectCandidate(name)) continue;
+    candidates.push({
+      cut: nameStart,
+      bodyStart: (match.index ?? 0) + match[0].length,
+      subject: name,
+    });
+    break;
+  }
+
+  // 2) 개인세특 표지: 문장 시작 표지 우선, 없으면 문장 중간 표지에서 문장 시작으로 되돌린다.
   PERSONAL_RECORD_EXPRESSION.lastIndex = 0;
+  let personal: OversizedCut | null = null;
   for (const match of body.matchAll(PERSONAL_RECORD_EXPRESSION)) {
     const start = (match.index ?? 0) + (match[0].length - match[1].length);
-    if (start > 0) return start;
+    if (start > 0) {
+      personal = { cut: start, bodyStart: start, subject: PERSONAL_RECORD_SUBJECT };
+      break;
+    }
   }
-  // 2) 문장 중간에 든 표지는 그 문장의 시작으로 되돌린다.
-  PERSONAL_MARKER_ANYWHERE.lastIndex = 0;
-  for (const match of body.matchAll(PERSONAL_MARKER_ANYWHERE)) {
-    const index = match.index ?? 0;
-    if (index === 0) continue;
-    const before = body.slice(0, index);
-    const sentenceEnd = Math.max(
-      before.lastIndexOf("."),
-      before.lastIndexOf("!"),
-      before.lastIndexOf("?"),
+  if (!personal) {
+    PERSONAL_MARKER_ANYWHERE.lastIndex = 0;
+    for (const match of body.matchAll(PERSONAL_MARKER_ANYWHERE)) {
+      const index = match.index ?? 0;
+      if (index === 0) continue;
+      const before = body.slice(0, index);
+      const sentenceEnd = Math.max(
+        before.lastIndexOf("."),
+        before.lastIndexOf("!"),
+        before.lastIndexOf("?"),
+      );
+      if (sentenceEnd < 0) continue;
+      let cut = sentenceEnd + 1;
+      while (cut < body.length && /\s/.test(body[cut])) cut += 1;
+      if (cut > 0 && cut < body.length) {
+        personal = { cut, bodyStart: cut, subject: PERSONAL_RECORD_SUBJECT };
+        break;
+      }
+    }
+  }
+  if (personal) candidates.push(personal);
+
+  // 3) ` . ` 이음매. 바로 뒤에 `이름:`이 서 있으면 그 이름을 쓴다.
+  const junction = /\s\.\s+/g.exec(body);
+  if (junction && junction.index > 0) {
+    const bodyStart = junction.index + junction[0].length;
+    if (bodyStart < body.length) {
+      candidates.push({ cut: junction.index, bodyStart, subject: PERSONAL_RECORD_SUBJECT });
+    }
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((left, right) => left.cut - right.cut);
+  const best = candidates[0];
+  // 이음매 절단이 뽑혔는데 그 자리에서 과목명이 시작한다면 과목 절단으로 바꾼다.
+  if (best.subject === PERSONAL_RECORD_SUBJECT) {
+    const named = candidates.find(
+      (candidate) =>
+        candidate.subject !== PERSONAL_RECORD_SUBJECT &&
+        candidate.cut >= best.cut &&
+        candidate.cut - best.bodyStart <= 2,
     );
-    if (sentenceEnd < 0) continue;
-    let cut = sentenceEnd + 1;
-    while (cut < body.length && /\s/.test(body[cut])) cut += 1;
-    if (cut > 0 && cut < body.length) return cut;
+    if (named) return named;
   }
-  return null;
+  return best;
 }

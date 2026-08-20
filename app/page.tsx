@@ -1364,7 +1364,8 @@ function escapeHtml(value: unknown) {
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [consented, setConsented] = useState(false);
-  const [threshold, setThreshold] = useState(0.7);
+  // 학교 점검 관행에 맞춘 기본값. 슬라이더로 50~95% 사이에서 조절할 수 있다.
+  const [threshold, setThreshold] = useState(0.65);
   const [records, setRecords] = useState<CheckRecord[]>([]);
   const [sourceFiles, setSourceFiles] = useState<string[]>([]);
   const [progress, setProgress] = useState<ProgressState | null>(null);
