@@ -925,6 +925,28 @@ function buildSentenceReuseCounts(records: CheckRecord[]): Map<string, number> {
 type ReusedSentence = { text: string; count: number };
 
 /**
+ * 필터 목록용 과목 순서. 창의적 체험활동 영역과 개인별 세특은 담임·담당 선생님이
+ * 가장 자주 찾으므로 맨 위에 두고, 나머지 과목은 가나다순으로 잇는다.
+ */
+const PRIORITY_FILTER_SUBJECTS = [
+  "자율활동",
+  "자율·자치활동",
+  "진로활동",
+  "동아리활동",
+  "봉사활동",
+  "개인별 세특",
+];
+
+function orderSubjectsForFilter(subjects: string[]): string[] {
+  const unique = [...new Set(subjects)];
+  const priority = PRIORITY_FILTER_SUBJECTS.filter((name) => unique.includes(name));
+  const rest = unique
+    .filter((name) => !PRIORITY_FILTER_SUBJECTS.includes(name))
+    .sort((a, b) => a.localeCompare(b, "ko"));
+  return [...priority, ...rest];
+}
+
+/**
  * 칩 색 분류. 오탈자 유형 안에서도 따옴표 계열, 띄어쓰기, 형식(분량·임원 기간),
  * 맞춤법 계열을 색으로 나눠 한눈에 구분되게 한다.
  */
@@ -1360,10 +1382,7 @@ export default function Home() {
     [records],
   );
   const subjectOptions = useMemo(
-    () =>
-      [...new Set(records.map((record) => record.subject))].sort((a, b) =>
-        a.localeCompare(b, "ko"),
-      ),
+    () => orderSubjectsForFilter(records.map((record) => record.subject)),
     [records],
   );
 
@@ -2116,8 +2135,7 @@ export default function Home() {
           <label>담당 ${escapeHtml(categoryLabel)}
             <select id="op-subject">
               <option value="all">전체 ${escapeHtml(categoryLabel)}</option>
-              ${[...new Set(orderedRecords.map((record) => record.subject))]
-                .sort((a, b) => a.localeCompare(b, "ko"))
+              ${orderSubjectsForFilter(orderedRecords.map((record) => record.subject))
                 .map((subject) => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`)
                 .join("")}
             </select>
@@ -2138,8 +2156,7 @@ export default function Home() {
           </select>
           <select id="report-subject" class="snapshot-select" aria-label="${escapeHtml(categoryLabel)} 필터">
             <option value="all">전체 ${escapeHtml(categoryLabel)}</option>
-            ${[...new Set(orderedRecords.map((record) => record.subject))]
-              .sort((a, b) => a.localeCompare(b, "ko"))
+            ${orderSubjectsForFilter(orderedRecords.map((record) => record.subject))
               .map((subject) => `<option value="${escapeHtml(subject)}">${escapeHtml(subject)}</option>`)
               .join("")}
           </select>
