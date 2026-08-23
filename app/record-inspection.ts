@@ -128,13 +128,9 @@ const PROHIBITED_RULES: TextRule[] = [
   // 구분할 수 없어 오탐 부담이 더 컸다.
 ];
 
+// 문장부호 뒤 띄어쓰기 누락 탐지는 뺐다. 엑셀·PDF에서 원문을 읽어 올 때 줄이 바뀌는
+// 자리가 공백 없이 이어 붙는 일이 잦아, 원문은 멀쩡한데 지적만 쌓였기 때문이다.
 const TYPO_RULES: TextRule[] = [
-  {
-    expression: /[.!?](?=[가-힣A-Za-z])/gu,
-    label: "문장 띄어쓰기",
-    guidance: "문장부호 뒤에 띄어쓰기가 빠진 것으로 보입니다.",
-    reference: "문장 형식 점검",
-  },
   {
     expression: /([.,!?])\1+/gu,
     label: "문장부호 반복",

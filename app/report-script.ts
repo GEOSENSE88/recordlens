@@ -77,11 +77,10 @@ export const REPORT_SCRIPT = String.raw`
 
   var RISK_LABELS = { exact: "완전 일치", high: "높은 유사도", review: "확인 필요", normal: "이상 없음" };
 
-  /* 칩 색 분류: 오탈자 유형 안에서도 따옴표·띄어쓰기·형식 계열을 색으로 나눈다. */
+  /* 칩 색 분류: 오탈자 유형 안에서도 따옴표·형식 계열을 색으로 나눈다. */
   function chipClass(rule) {
     if (rule.t !== "typo") return "type-" + rule.t;
     if (rule.l.indexOf("따옴표") >= 0 || rule.l.indexOf("짝 안 맞는") >= 0) return "type-quote";
-    if (rule.l.indexOf("띄어쓰기") >= 0) return "type-spacing";
     if (rule.l === "분량 초과" || rule.l === "임원 기간") return "type-format";
     return "type-typo";
   }
